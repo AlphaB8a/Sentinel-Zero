@@ -1,0 +1,11 @@
+[package]
+name = "sentinel_rust_plugin_demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+serde_json = "1"
+
+sentinel_plugin_sdk = { path = "../../../crates/sentinel_plugin_sdk" }

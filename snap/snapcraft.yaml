@@ -1,0 +1,48 @@
+name: alphabeta-sentinel
+base: core24
+version: "0.1.0"
+summary: "Local-first cockpit for telemetry, deterministic alerts, and safe proposals."
+description: |
+  AlphaBeta Sentinel (Sentinel Zero) is a local-first “cockpit” for system health and operator decision-making.
+
+  It provides:
+  - Headless daemon mode with a local IPC endpoint (TCP localhost inside the snap)
+  - Interactive TUI cockpit with Bridge Mode panels (CPU, memory, disk, network, GPU via collectors)
+  - Deterministic alerts with greppable transitions (ALERT_SET / ALERT_CLEAR)
+  - Proposal-only ActionCards (no auto-execution): risk + rollback guidance + proof signals
+  - Plugin/collector architecture using a stable protocol (sentinel_protocol)
+
+  Privacy & safety:
+  - Local-only by default
+  - No automatic tuning or system changes
+  - Built for reproducibility and auditability
+
+  KernelKit is published separately on GitHub (not bundled in this snap).
+
+grade: devel
+confinement: strict
+
+apps:
+  sentinel-headless:
+    command: bin/sentinel_tui --headless --ipc tcp:127.0.0.1:7777
+    plugs: [network, network-bind, system-observe, hardware-observe]
+
+  sentinel-tui:
+    command: bin/sentinel_tui --ipc tcp:127.0.0.1:7777
+    plugs: [network, network-bind, system-observe, hardware-observe]
+
+  demo-plugin:
+    command: bin/sentinel_rust_plugin_demo
+    environment:
+      SENTINEL_IPC: "tcp:127.0.0.1:7777"
+    plugs: [network, network-bind]
+
+parts:
+  sentinel:
+    plugin: rust
+    source: .
+    override-build: |
+      cargo build --release -p sentinel_tui
+      cargo build --release -p sentinel_rust_plugin_demo
+      install -Dm755 target/release/sentinel_tui $CRAFT_PART_INSTALL/bin/sentinel_tui
+      install -Dm755 target/release/sentinel_rust_plugin_demo $CRAFT_PART_INSTALL/bin/sentinel_rust_plugin_demo

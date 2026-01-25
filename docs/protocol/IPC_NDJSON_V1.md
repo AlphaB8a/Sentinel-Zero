@@ -1,0 +1,79 @@
+# Sentinel IPC NDJSON Protocol v1.0
+
+## Overview
+Sentinel plugins communicate with the host over a byte-stream transport using NDJSON
+(Newline-Delimited JSON). Each line is one complete JSON object.
+
+## Transport
+A **stream transport** is required. Implementations MAY support multiple transports.
+
+- Recommended: **Unix domain stream socket**
+  - Listen spec: `unix:/tmp/sentinel.sock`
+  - Path-only shorthand MAY be supported: `/tmp/sentinel.sock`
+- Optional (useful in constrained environments): **TCP loopback**
+  - Listen spec: `tcp:127.0.0.1:7777`
+  - SHOULD bind to loopback by default.
+
+## Framing
+- UTF-8 only.
+- Exactly one JSON object per line (`\n` delimiter).
+- Messages MUST NOT contain embedded newlines.
+- Hosts SHOULD enforce limits:
+  - Max line length: 64 KiB
+  - Max metrics per `PushMetrics`: 500
+  - Rate limiting/backpressure per connection
+
+## Requests (NDJSON)
+All requests are JSON objects tagged by `type` with `payload` as the content.
+Requests MAY include an `id` field. If present, the host SHOULD echo it in responses.
+
+### Register
+```json
+{"type":"Register","payload":{"plugin_id":"example.rust"}}
+```
+
+```json
+{"id":"01HV...","type":"Register","payload":{"plugin_id":"example.rust"}}
+```
+
+### PushMetrics
+```json
+{"type":"PushMetrics","payload":{"metrics":[
+  {"source":"example.rust","label":"Fan Speed","value":"100%"}
+]}}
+```
+
+### ProposeAction
+```json
+{"type":"ProposeAction","payload":{
+  "title":"Restart nginx",
+  "cmd":"systemctl restart nginx",
+  "dangerous":true
+}}
+```
+
+## Responses (NDJSON)
+The host replies with exactly one NDJSON line per request.
+
+### Success
+```json
+{"status":"ok"}
+```
+
+```json
+{"status":"ok","id":"01HV..."}
+```
+
+### Failure
+```json
+{"status":"bad_request"}
+```
+
+```json
+{"status":"bad_request","id":"01HV..."}
+```
+
+## Security Recommendations
+- Unix sockets SHOULD be placed in a user-owned directory with 0700 and socket 0600.
+- TCP transport SHOULD bind only to loopback (127.0.0.1) by default.
+- Hosts SHOULD validate inputs and enforce limits to avoid plugin-induced denial-of-service.

@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/sentinel_protocol",
+  "crates/sentinel_core",
+  "crates/sentinel_tui",
+  "crates/sentinel_plugin_sdk",
+  "plugins/examples/rust",
+  "plugins/examples/rust_plugin_demo",
+  "tools/kernelkit",
+]

@@ -1,0 +1,35 @@
+# Rust
+/target/
+**/target/
+
+# Snapcraft build artifacts
+/*.snap
+/snap/firmware-updater/
+/parts/
+/stage/
+/prime/
+.snapcraft/
+.snapcraft.yaml.bak
+.snapcraft-log.txt
+
+# Logs / temp
+*.log
+/tmp/
+.DS_Store
+
+# KernelKit output (local)
+/vault/ai_data/logs/kernelkit/applies/
+release.sha256
+
+# Local environment
+/.bash_history
+/.cache/
+/.cargo/
+/.codex/
+/.config/
+/.craft/
+/.local/
+/.profile
+/.rustup/
+/.sudo_as_admin_successful
+/LT1 AI OS/

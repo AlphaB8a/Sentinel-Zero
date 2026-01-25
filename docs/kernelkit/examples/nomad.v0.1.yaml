@@ -1,0 +1,64 @@
+api_version: "kernelkit.alpha.v0.1"
+plan_id: "nomad.v0.1"
+profile: "silicon_constrained_nomad"
+created_ts: 1737160000000
+author: "human"
+description: "Nomad baseline: battery/suspend stability."
+
+targets:
+  os_family: "ubuntu"
+  kernel_series: "6.x"
+  hardware_tags: ["example"]
+
+policy:
+  apply_mode: "propose_only"
+  risk_level: "low"
+  require_tty_confirm: true
+  forbid_remote_apply: true
+  allowlist_only: true
+
+changes:
+  kernel_cmdline:
+    enabled: true
+    fragment_path: "/etc/kernel/cmdline.d/99-kernelkit.conf"
+    require_reboot: true
+    params:
+      add: ["pcie_aspm=policy"]
+      remove: []
+
+  sysctl:
+    enabled: true
+    file_path: "/etc/sysctl.d/99-kernelkit.conf"
+    set:
+      vm.swappiness: "10"
+
+  systemd:
+    enabled: false
+    dropins: []
+
+  udev:
+    enabled: false
+    rules_path: "/etc/udev/rules.d/99-kernelkit.rules"
+    rules: []
+
+  zram:
+    enabled: false
+    mode: "systemd_zram_generator"
+    config_path: "/etc/systemd/zram-generator.conf"
+    settings: {}
+
+  nvidia:
+    enabled: false
+    settings:
+      persistence_mode: null
+      power_limit_watts: null
+      compute_mode: null
+
+verification:
+  preflight_checks: ["is_local_tty"]
+  postflight_checks: []
+  sentinel_emit: false
+
+rollback:
+  strategy: "restore_previous"
+  snapshot_paths: []
