@@ -18,7 +18,10 @@ pub enum EngineEvent {
         schema_hash: Option<String>,
         ts_ms: u64,
     },
-    PluginHeartbeat { plugin_id: String, ts_ms: u64 },
+    PluginHeartbeat {
+        plugin_id: String,
+        ts_ms: u64,
+    },
     PluginAlerts(Vec<AlertCard>),
     ActionCards(Vec<PerfActionCard>),
 }

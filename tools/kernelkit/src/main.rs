@@ -2,22 +2,25 @@ mod normalize;
 mod plan;
 
 use anyhow::{anyhow, Context, Result};
-use clap::{Parser, Subcommand};
 use chrono::Local;
-use sha2::{Digest, Sha256};
-use std::{fs, path::{Path, PathBuf}};
+use clap::{Parser, Subcommand};
 use serde_json::json;
+use sha2::{Digest, Sha256};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::plan::{ApplyMode, Plan as KKPlan};
 
 #[derive(Parser)]
-#[command(name="kernelkit", version)]
+#[command(name = "kernelkit", version)]
 struct Cli {
     #[command(subcommand)]
     cmd: Command,
 
     /// Base output directory for artifacts (default: /vault/ai_data/logs/kernelkit/applies)
-    #[arg(long, default_value="/vault/ai_data/logs/kernelkit/applies")]
+    #[arg(long, default_value = "/vault/ai_data/logs/kernelkit/applies")]
     out_dir: String,
 }
 
@@ -47,7 +50,7 @@ enum ProfileCmd {
     List,
     Diff {
         plan: String,
-        #[arg(long, default_value="current")]
+        #[arg(long, default_value = "current")]
         against: String,
     },
 }
@@ -67,14 +70,19 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
         }
         ProfileCmd::Diff { plan, against: _ } => {
             let _ = load_plan(&plan)?;
-            println!("diff: stub (v0.1). would inspect current sysctl/cmdline/dropins and compare.");
+            println!(
+                "diff: stub (v0.1). would inspect current sysctl/cmdline/dropins and compare."
+            );
             Ok(())
         }
         ProfileCmd::Verify { apply_dir } => {
             let dir = PathBuf::from(apply_dir);
             let preflight = dir.join("preflight.json");
             if !preflight.exists() {
-                return Err(anyhow!("verify: missing preflight.json in {}", dir.display()));
+                return Err(anyhow!(
+                    "verify: missing preflight.json in {}",
+                    dir.display()
+                ));
             }
             println!("KERNELKIT_VERIFY_OK dir={}", dir.display());
             Ok(())
@@ -83,7 +91,10 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
             let dir = PathBuf::from(apply_dir);
             let rb = dir.join("rollback.sh");
             if !rb.exists() {
-                return Err(anyhow!("rollback: missing rollback.sh in {}", dir.display()));
+                return Err(anyhow!(
+                    "rollback: missing rollback.sh in {}",
+                    dir.display()
+                ));
             }
             println!(
                 "KERNELKIT_ROLLBACK_READY dir={} cmd='sudo bash {}'",
@@ -92,7 +103,11 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
             );
             Ok(())
         }
-        ProfileCmd::Apply { plan, propose_only, apply } => {
+        ProfileCmd::Apply {
+            plan,
+            propose_only,
+            apply,
+        } => {
             if propose_only && apply {
                 return Err(anyhow!("choose only one: --propose-only or --apply"));
             }
@@ -103,7 +118,8 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
 
             let ts = Local::now().format("%Y%m%d-%H%M%S").to_string();
             let out_dir = out_base.join(ts);
-            fs::create_dir_all(&out_dir).with_context(|| format!("create {}", out_dir.display()))?;
+            fs::create_dir_all(&out_dir)
+                .with_context(|| format!("create {}", out_dir.display()))?;
 
             let resolved_yaml = serde_yaml::to_string(&resolved)?;
             write_text(out_dir.join("plan.resolved.yaml"), &resolved_yaml)?;
@@ -142,7 +158,11 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
                 ));
             }
 
-            println!("KERNELKIT_APPLY_OK plan_id={} dir={}", resolved.plan_id, out_dir.display());
+            println!(
+                "KERNELKIT_APPLY_OK plan_id={} dir={}",
+                resolved.plan_id,
+                out_dir.display()
+            );
             Ok(())
         }
     }
@@ -238,7 +258,7 @@ fn render_apply_sh(p: &KKPlan) -> Result<String> {
         if p.changes.kernel_cmdline.require_reboot {
             out.push_str("echo \"NOTE: kernel cmdline changed; reboot required\"\n");
         }
-        out.push_str("\n");
+        out.push('\n');
     }
 
     if p.changes.sysctl.enabled {
@@ -247,13 +267,16 @@ fn render_apply_sh(p: &KKPlan) -> Result<String> {
             "sudo mkdir -p \"{}\"\n",
             parent_dir(&p.changes.sysctl.file_path)
         ));
-        out.push_str(&format!("cat > \"{}\" <<'EOF'\n", p.changes.sysctl.file_path));
+        out.push_str(&format!(
+            "cat > \"{}\" <<'EOF'\n",
+            p.changes.sysctl.file_path
+        ));
         for (k, v) in &p.changes.sysctl.set {
             out.push_str(&format!("{k} = {v}\n"));
         }
         out.push_str("EOF\n");
         out.push_str("sudo sysctl --system >/dev/null || true\n");
-        out.push_str("\n");
+        out.push('\n');
     }
 
     if p.changes.systemd.enabled {
@@ -278,7 +301,10 @@ fn render_apply_sh(p: &KKPlan) -> Result<String> {
             "sudo mkdir -p \"{}\"\n",
             parent_dir(&p.changes.zram.config_path)
         ));
-        out.push_str(&format!("cat > \"{}\" <<'EOF'\n", p.changes.zram.config_path));
+        out.push_str(&format!(
+            "cat > \"{}\" <<'EOF'\n",
+            p.changes.zram.config_path
+        ));
         for (dev, cfg) in &p.changes.zram.settings {
             out.push_str(&format!("[{dev}]\n"));
             out.push_str(&format!("zram-size = {}\n", cfg.zram_size));
@@ -286,7 +312,9 @@ fn render_apply_sh(p: &KKPlan) -> Result<String> {
             out.push_str(&format!("swap-priority = {}\n\n", cfg.swap_priority));
         }
         out.push_str("EOF\n");
-        out.push_str("echo \"NOTE: enable/start zram service depends on distro; verify after reboot\"\n\n");
+        out.push_str(
+            "echo \"NOTE: enable/start zram service depends on distro; verify after reboot\"\n\n",
+        );
     }
 
     if p.changes.nvidia.enabled {
@@ -300,7 +328,7 @@ fn render_apply_sh(p: &KKPlan) -> Result<String> {
             "echo \"  power_limit_watts={:?}\"\n",
             p.changes.nvidia.settings.power_limit_watts
         ));
-        out.push_str("\n");
+        out.push('\n');
     }
 
     Ok(out)

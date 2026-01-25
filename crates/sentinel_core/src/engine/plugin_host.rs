@@ -2,12 +2,12 @@ use crate::engine::EngineEvent;
 use crate::ipc::{listen::ListenSpec, protocol::IpcMessage};
 use crate::model::ActionCard;
 use anyhow::Context;
-use serde_json::Value;
 use sentinel_protocol::Ack;
+use serde_json::Value;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::mpsc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Minimal NDJSON plugin host. Production hardening will:
 /// - bind under /run/user/$UID with 0700 dir, 0600 socket
@@ -56,11 +56,14 @@ where
         let mut value = match serde_json::from_str::<Value>(&line) {
             Ok(value) => value,
             Err(_) => {
-                write_ack(&mut writer, Ack {
-                    status: "bad_request".into(),
-                    error: Some("bad_request".into()),
-                    ..Default::default()
-                })
+                write_ack(
+                    &mut writer,
+                    Ack {
+                        status: "bad_request".into(),
+                        error: Some("bad_request".into()),
+                        ..Default::default()
+                    },
+                )
                 .await;
                 continue;
             }
@@ -103,7 +106,10 @@ where
                         })
                         .await;
                     let _ = tx
-                        .send(EngineEvent::PluginLog(format!("Plugin hello: {}", plugin_id)))
+                        .send(EngineEvent::PluginLog(format!(
+                            "Plugin hello: {}",
+                            plugin_id
+                        )))
                         .await;
 
                     let ack = Ack {
@@ -117,7 +123,10 @@ where
                     write_ack(&mut writer, ack).await;
                     continue;
                 }
-                IpcMessage::Heartbeat { plugin_id, ts_ms: _ } => {
+                IpcMessage::Heartbeat {
+                    plugin_id,
+                    ts_ms: _,
+                } => {
                     let _ = tx
                         .send(EngineEvent::PluginHeartbeat {
                             plugin_id: plugin_id.clone(),
@@ -128,13 +137,20 @@ where
                         .send(EngineEvent::PluginLog(format!("Heartbeat: {}", plugin_id)))
                         .await;
 
-                    let ack = Ack { status: "ok".into(), id, ..Default::default() };
+                    let ack = Ack {
+                        status: "ok".into(),
+                        id,
+                        ..Default::default()
+                    };
                     write_ack(&mut writer, ack).await;
                     continue;
                 }
                 IpcMessage::Register { plugin_id } => {
                     let _ = tx
-                        .send(EngineEvent::PluginLog(format!("Plugin attached: {}", plugin_id)))
+                        .send(EngineEvent::PluginLog(format!(
+                            "Plugin attached: {}",
+                            plugin_id
+                        )))
                         .await;
                 }
                 IpcMessage::PushMetrics { metrics } => {
@@ -143,13 +159,25 @@ where
                 IpcMessage::PushAlerts { alerts } => {
                     let _ = tx.send(EngineEvent::PluginAlerts(alerts)).await;
                 }
-                IpcMessage::ProposeAction { title, cmd, dangerous } => {
+                IpcMessage::ProposeAction {
+                    title,
+                    cmd,
+                    dangerous,
+                } => {
                     let _ = tx
-                        .send(EngineEvent::PluginAction(ActionCard { title, cmd, dangerous }))
+                        .send(EngineEvent::PluginAction(ActionCard {
+                            title,
+                            cmd,
+                            dangerous,
+                        }))
                         .await;
                 }
             }
-            let ack = Ack { status: "ok".into(), id, ..Default::default() };
+            let ack = Ack {
+                status: "ok".into(),
+                id,
+                ..Default::default()
+            };
             write_ack(&mut writer, ack).await;
         } else {
             let ack = Ack {
@@ -164,9 +192,8 @@ where
 }
 
 async fn write_ack<W: AsyncWrite + Unpin>(writer: &mut W, ack: Ack) {
-    let mut line = serde_json::to_vec(&ack).unwrap_or_else(|_| {
-        b"{\"status\":\"bad_request\",\"error\":\"encode_failed\"}".to_vec()
-    });
+    let mut line = serde_json::to_vec(&ack)
+        .unwrap_or_else(|_| b"{\"status\":\"bad_request\",\"error\":\"encode_failed\"}".to_vec());
     line.push(b'\n');
     let _ = writer.write_all(&line).await;
 }

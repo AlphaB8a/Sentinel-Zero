@@ -22,18 +22,24 @@ impl IpcStream {
 pub async fn connect_spec(spec: &str) -> anyhow::Result<IpcStream> {
     match ListenSpec::parse(spec)? {
         ListenSpec::Unix(path) => {
-            let stream = UnixStream::connect(&path).await.context("connect unix socket")?;
+            let stream = UnixStream::connect(&path)
+                .await
+                .context("connect unix socket")?;
             Ok(IpcStream::Unix(stream))
         }
         ListenSpec::Tcp(addr) => {
-            let stream = TcpStream::connect(addr).await.context("connect tcp socket")?;
+            let stream = TcpStream::connect(addr)
+                .await
+                .context("connect tcp socket")?;
             Ok(IpcStream::Tcp(stream))
         }
     }
 }
 
 pub async fn connect(path: &str) -> anyhow::Result<UnixStream> {
-    UnixStream::connect(path).await.context("connect unix socket")
+    UnixStream::connect(path)
+        .await
+        .context("connect unix socket")
 }
 
 pub async fn send_ndjson<S>(stream: &mut S, msg: &IpcMessage) -> anyhow::Result<()>

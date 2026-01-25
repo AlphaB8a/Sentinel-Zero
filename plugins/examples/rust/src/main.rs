@@ -33,7 +33,10 @@ async fn send_and_ack<S: AsyncRead + AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn run_stream<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, plugin_id: &str) -> Result<()> {
+async fn run_stream<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
+    plugin_id: &str,
+) -> Result<()> {
     send_and_ack(
         &mut stream,
         &IpcMessage::Register {
@@ -54,8 +57,8 @@ async fn run_stream<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, plugin_id:
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let spec = std::env::var("SENTINEL_IPC")
-        .unwrap_or_else(|_| "unix:/tmp/sentinel.sock".to_string());
+    let spec =
+        std::env::var("SENTINEL_IPC").unwrap_or_else(|_| "unix:/tmp/sentinel.sock".to_string());
     let plugin_id = "example.rust";
 
     eprintln!("[plugin-example] connecting via SENTINEL_IPC={}", spec);

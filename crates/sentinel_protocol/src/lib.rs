@@ -57,9 +57,22 @@ pub enum IpcMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         schema_hash: Option<String>,
     },
-    Heartbeat { plugin_id: String, ts_ms: u64 },
-    Register { plugin_id: String },
-    PushMetrics { metrics: Vec<MetricPoint> },
-    PushAlerts { alerts: Vec<AlertCard> },
-    ProposeAction { title: String, cmd: String, dangerous: bool },
+    Heartbeat {
+        plugin_id: String,
+        ts_ms: u64,
+    },
+    Register {
+        plugin_id: String,
+    },
+    PushMetrics {
+        metrics: Vec<MetricPoint>,
+    },
+    PushAlerts {
+        alerts: Vec<AlertCard>,
+    },
+    ProposeAction {
+        title: String,
+        cmd: String,
+        dangerous: bool,
+    },
 }

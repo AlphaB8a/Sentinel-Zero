@@ -1,6 +1,6 @@
+pub use sentinel_protocol::{AlertCard, MetricPoint, Severity};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-pub use sentinel_protocol::{AlertCard, MetricPoint, Severity};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneId {
@@ -20,7 +20,11 @@ pub struct LayoutConfig {
 
 impl Default for LayoutConfig {
     fn default() -> Self {
-        Self { main_split: 70, left_split: 45, right_split: 60 }
+        Self {
+            main_split: 70,
+            left_split: 45,
+            right_split: 60,
+        }
     }
 }
 

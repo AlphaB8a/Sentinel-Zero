@@ -42,7 +42,10 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-async fn run_stream<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, plugin_id: &str) -> Result<()> {
+async fn run_stream<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
+    plugin_id: &str,
+) -> Result<()> {
     send_and_ack(
         &mut stream,
         &IpcMessage::Hello {
@@ -63,31 +66,38 @@ async fn run_stream<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, plugin_id:
     )
     .await?;
 
-    let metrics = vec![MetricPoint {
-        source: plugin_id.to_string(),
-        label: "CPU Temp (C)".into(),
-        value: "90.0".into(),
-    }, MetricPoint {
-        source: plugin_id.to_string(),
-        label: "GPU0 Temp (C)".into(),
-        value: "90.0".into(),
-    }, MetricPoint {
-        source: plugin_id.to_string(),
-        label: "GPU1 Temp (C)".into(),
-        value: "90.0".into(),
-    }, MetricPoint {
-        source: plugin_id.to_string(),
-        label: "Disk Free (%)".into(),
-        value: "5.0".into(),
-    }, MetricPoint {
-        source: plugin_id.to_string(),
-        label: "Net Up (Mbps)".into(),
-        value: "120.0".into(),
-    }, MetricPoint {
-        source: plugin_id.to_string(),
-        label: "Net Down (Mbps)".into(),
-        value: "45.0".into(),
-    }];
+    let metrics = vec![
+        MetricPoint {
+            source: plugin_id.to_string(),
+            label: "CPU Temp (C)".into(),
+            value: "90.0".into(),
+        },
+        MetricPoint {
+            source: plugin_id.to_string(),
+            label: "GPU0 Temp (C)".into(),
+            value: "90.0".into(),
+        },
+        MetricPoint {
+            source: plugin_id.to_string(),
+            label: "GPU1 Temp (C)".into(),
+            value: "90.0".into(),
+        },
+        MetricPoint {
+            source: plugin_id.to_string(),
+            label: "Disk Free (%)".into(),
+            value: "5.0".into(),
+        },
+        MetricPoint {
+            source: plugin_id.to_string(),
+            label: "Net Up (Mbps)".into(),
+            value: "120.0".into(),
+        },
+        MetricPoint {
+            source: plugin_id.to_string(),
+            label: "Net Down (Mbps)".into(),
+            value: "45.0".into(),
+        },
+    ];
 
     send_and_ack(&mut stream, &IpcMessage::PushMetrics { metrics }).await?;
 
@@ -108,8 +118,8 @@ async fn run_stream<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, plugin_id:
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let spec = std::env::var("SENTINEL_IPC")
-        .unwrap_or_else(|_| "unix:/tmp/sentinel.sock".to_string());
+    let spec =
+        std::env::var("SENTINEL_IPC").unwrap_or_else(|_| "unix:/tmp/sentinel.sock".to_string());
     let plugin_id = "demo.bridge";
 
     eprintln!("[plugin-demo] connecting via SENTINEL_IPC={}", spec);

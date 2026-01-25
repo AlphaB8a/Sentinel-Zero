@@ -140,7 +140,10 @@ pub fn compute_alerts(
 fn metric_with_source(metrics: &[MetricPoint], label: &str) -> Option<(f32, String)> {
     let sources = ["host", "demo.bridge", "demo"];
     for source in sources {
-        if let Some(m) = metrics.iter().find(|m| m.source == source && m.label == label) {
+        if let Some(m) = metrics
+            .iter()
+            .find(|m| m.source == source && m.label == label)
+        {
             if let Ok(value) = m.value.trim().parse::<f32>() {
                 return Some((value, m.source.clone()));
             }

@@ -1,8 +1,8 @@
 use crate::engine::EngineEvent;
 use crate::model::{ProcRow, Snapshot};
+use std::time::Duration;
 use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, RefreshKind, System};
 use tokio::sync::mpsc;
-use std::time::Duration;
 
 /// Runs sysinfo sampling on a blocking thread and publishes snapshots.
 /// This is a minimal stub; tiered clocks can be layered on (fast/slow).
@@ -47,7 +47,11 @@ pub async fn run_physics(tx: mpsc::Sender<EngineEvent>) {
                 .collect();
 
             // Sort by CPU desc and keep top 40
-            rows.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap_or(std::cmp::Ordering::Equal));
+            rows.sort_by(|a, b| {
+                b.cpu
+                    .partial_cmp(&a.cpu)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
             rows.truncate(40);
 
             let snap = Snapshot {

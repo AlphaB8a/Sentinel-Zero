@@ -5,7 +5,10 @@ use sentinel_core::{
     model::{AlertState, LayoutConfig, MetricRegistry, PluginInfo, PluginRegistry, Snapshot},
     perfkit::compute_actions,
 };
-use std::{collections::HashMap, time::{Duration, Instant}};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 use tokio::sync::mpsc;
 
 pub fn init_app_state<'a>() -> AppState<'a> {
@@ -25,7 +28,8 @@ pub fn init_app_state<'a>() -> AppState<'a> {
         alert_state: AlertState::default(),
         plugin_alerts: Vec::new(),
     };
-    app.ai_input.set_block(ratatui::widgets::Block::default().borders(ratatui::widgets::Borders::ALL));
+    app.ai_input
+        .set_block(ratatui::widgets::Block::default().borders(ratatui::widgets::Borders::ALL));
     app
 }
 
@@ -45,7 +49,9 @@ pub fn handle_engine_event(app: &mut AppState, evt: engine::EngineEvent) {
             for m in metrics {
                 let ts_ms = now_ms();
                 touch_plugin(&mut app.plugin_registry, &m.source, ts_ms);
-                app.metric_registry.metrics.insert((m.source.clone(), m.label.clone()), m);
+                app.metric_registry
+                    .metrics
+                    .insert((m.source.clone(), m.label.clone()), m);
             }
         }
         engine::EngineEvent::PluginAction(a) => app.action_queue.push(a),

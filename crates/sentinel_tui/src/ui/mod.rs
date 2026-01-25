@@ -3,7 +3,10 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Row, Table},
 };
-use sentinel_core::{model::{AlertCard, PaneId, Severity}, perfkit::Risk};
+use sentinel_core::{
+    model::{AlertCard, PaneId, Severity},
+    perfkit::Risk,
+};
 
 pub const CPU_LOAD: &str = "CPU Load (%)";
 pub const CPU_TEMP: &str = "CPU Temp (C)";
@@ -22,7 +25,11 @@ pub fn draw(f: &mut Frame, app: &mut AppState) {
     // Top / workspace / bottom
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
         .split(area);
 
     f.render_widget(
@@ -140,17 +147,30 @@ fn draw_processes(f: &mut Frame, app: &AppState, area: Rect) {
         .snapshot
         .procs
         .iter()
-        .map(|p| Row::new(vec![p.pid.to_string(), p.name.clone(), format!("{:.1}", p.cpu)]))
+        .map(|p| {
+            Row::new(vec![
+                p.pid.to_string(),
+                p.name.clone(),
+                format!("{:.1}", p.cpu),
+            ])
+        })
         .collect();
 
-    let table = Table::new(rows, [Constraint::Length(6), Constraint::Min(10), Constraint::Length(6)])
-        .header(Row::new(vec!["PID", "Name", "CPU"]).style(Style::default().fg(Color::Yellow)))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("(C) Processes")
-                .border_style(style(app.active_pane, PaneId::Processes)),
-        );
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(6),
+            Constraint::Min(10),
+            Constraint::Length(6),
+        ],
+    )
+    .header(Row::new(vec!["PID", "Name", "CPU"]).style(Style::default().fg(Color::Yellow)))
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("(C) Processes")
+            .border_style(style(app.active_pane, PaneId::Processes)),
+    );
 
     f.render_widget(table, area);
 }

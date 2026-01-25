@@ -44,7 +44,8 @@ pub fn compute_actions(alerts: &[AlertCard]) -> Vec<PerfActionCard> {
             summary: "Remove large unused artifacts to reclaim significant space.".into(),
             risk: Risk::Crit,
             expected_effect: "Significant disk recovery; may delete valuable assets.".into(),
-            apply: "echo \"Suggested: identify large dirs then delete (manual review required)\"".into(),
+            apply: "echo \"Suggested: identify large dirs then delete (manual review required)\""
+                .into(),
             rollback: "echo \"Rollback: restore from backup/snapshot\"".into(),
             proof: "Disk Free (%) increases; disk.low alert clears.".into(),
         });

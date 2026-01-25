@@ -3,13 +3,23 @@ mod ui;
 
 use anyhow::Result;
 use ratatui::crossterm::{
-    execute,
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use sentinel_core::{engine, model::{AlertCard, AlertState, LayoutConfig, MetricRegistry, PaneId, PluginInfo, PluginRegistry, Snapshot}};
-use std::{collections::HashMap, io::{self, IsTerminal}, time::{Duration, SystemTime, UNIX_EPOCH}};
+use sentinel_core::{
+    engine,
+    model::{
+        AlertCard, AlertState, LayoutConfig, MetricRegistry, PaneId, PluginInfo, PluginRegistry,
+        Snapshot,
+    },
+};
+use std::{
+    collections::HashMap,
+    io::{self, IsTerminal},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use tokio::sync::mpsc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,8 +53,8 @@ fn has_tty() -> bool {
 
 fn parse_options() -> (bool, String) {
     let mut headless = std::env::var("SENTINEL_HEADLESS").ok().as_deref() == Some("1");
-    let mut listen_spec = std::env::var("SENTINEL_IPC")
-        .unwrap_or_else(|_| "unix:/tmp/sentinel.sock".to_string());
+    let mut listen_spec =
+        std::env::var("SENTINEL_IPC").unwrap_or_else(|_| "unix:/tmp/sentinel.sock".to_string());
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -140,7 +150,9 @@ async fn main() -> Result<()> {
 
     // Spawn workers
     let tx_phy = tx.clone();
-    tokio::spawn(async move { engine::physics::run_physics(tx_phy).await; });
+    tokio::spawn(async move {
+        engine::physics::run_physics(tx_phy).await;
+    });
     let tx_ipc = tx.clone();
     tokio::spawn(async move {
         if let Err(err) = engine::plugin_host::run_ipc(&listen_spec, tx_ipc).await {
@@ -243,7 +255,11 @@ async fn main() -> Result<()> {
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
 
     Ok(())
