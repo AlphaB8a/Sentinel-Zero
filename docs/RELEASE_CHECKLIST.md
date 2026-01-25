@@ -33,10 +33,10 @@ Status: in progress (manual gates pending)
 - [x] resolved.sha256 (latest): 6206579687d08aae5a9742efffe61d078438187f5bc68922b39ee2ce92254968
 
 ### Snap Strict Confinement Gate (Manual sudo)
-- [ ] sudo snap install --dangerous ./alphabeta-sentinel_0.1.0_amd64.snap
-- [ ] ./scripts/gates/snap_gate.sh shows:
-  - ALERT_SET collector.offline.demo.bridge
-  - ALERT_CLEAR collector.offline.demo.bridge
+- [x] sudo snap install --dangerous ./alphabeta-sentinel_0.1.0_amd64.snap
+- [x] ./scripts/gates/snap_gate.sh shows:
+  - ALERT_SET collector.offline.demo.bridge @ 2026-01-25T03:32:23.149072Z
+  - ALERT_CLEAR collector.offline.demo.bridge @ 2026-01-25T03:32:28.222057Z
 
 ## Notes
 - Snap uses TCP 127.0.0.1:7777 inside strict confinement (expected).
