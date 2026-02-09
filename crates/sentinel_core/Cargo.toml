@@ -10,7 +10,7 @@ serde_json = "1"
 time = "0.3"
 tokio = { version = "1", features = ["rt", "sync", "time", "net", "io-util", "macros"] }
 tokio-util = { version = "0.7", features = ["codec"] }
-sysinfo = "0.30"
+sysinfo = "0.38"
 sentinel_protocol = { path = "../sentinel_protocol" }
 tracing = "0.1"
 
