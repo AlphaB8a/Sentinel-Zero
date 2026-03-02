@@ -19,6 +19,7 @@ echo "[sweep] CARGO_TARGET_DIR=${CARGO_TARGET_DIR}"
 cargo fetch --locked
 cargo test --workspace --locked
 cargo clippy --workspace -- -D warnings
+./scripts/gates/ipc_abuse_gate.sh
 ./scripts/gates/secrets_pattern_gate.sh
 ./scripts/gates/cargo_audit_gate.sh
 ./scripts/gates/kernelkit_receipt_gate.sh

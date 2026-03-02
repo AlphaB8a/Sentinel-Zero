@@ -10,9 +10,9 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, UnixListener};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio::time::{timeout, Duration};
 use tokio_rustls::TlsAcceptor;
 
@@ -22,8 +22,11 @@ const DEFAULT_IPC_READ_TIMEOUT_MS: u64 = 30_000;
 const MAX_IPC_READ_TIMEOUT_MS: u64 = 300_000;
 const DEFAULT_IPC_MAX_MESSAGES_PER_CONN: u64 = 10_000;
 const MAX_IPC_MAX_MESSAGES_PER_CONN: u64 = 1_000_000;
+const DEFAULT_IPC_MAX_CONNECTIONS: usize = 256;
+const MAX_IPC_MAX_CONNECTIONS: usize = 100_000;
 const SENTINEL_ALLOW_NON_LOOPBACK_BIND: &str = "SENTINEL_ALLOW_NON_LOOPBACK_BIND";
 const SENTINEL_IPC_ALLOW_INSECURE_DIR_PERMS: &str = "SENTINEL_IPC_ALLOW_INSECURE_DIR_PERMS";
+const SENTINEL_IPC_MAX_CONNECTIONS: &str = "SENTINEL_IPC_MAX_CONNECTIONS";
 
 /// Minimal NDJSON plugin host. Production hardening will:
 /// - bind under /run/user/$UID with 0700 dir, 0600 socket
@@ -34,6 +37,8 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
     let max_line_bytes = ipc_max_line_bytes()?;
     let read_timeout = ipc_read_timeout()?;
     let max_messages_per_conn = ipc_max_messages_per_conn()?;
+    let max_connections = ipc_max_connections()?;
+    let connection_limiter = Arc::new(Semaphore::new(max_connections));
 
     match listen {
         ListenSpec::Unix(path) => {
@@ -45,7 +50,13 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
             loop {
                 let (stream, _) = listener.accept().await?;
                 let tx = tx.clone();
+                let Some(permit) =
+                    acquire_connection_slot(&connection_limiter, &tx, max_connections).await
+                else {
+                    continue;
+                };
                 tokio::spawn(async move {
+                    let _permit = permit;
                     handle_stream(
                         stream,
                         tx,
@@ -65,7 +76,13 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
             loop {
                 let (stream, _) = listener.accept().await?;
                 let tx = tx.clone();
+                let Some(permit) =
+                    acquire_connection_slot(&connection_limiter, &tx, max_connections).await
+                else {
+                    continue;
+                };
                 tokio::spawn(async move {
+                    let _permit = permit;
                     handle_stream(
                         stream,
                         tx,
@@ -87,7 +104,13 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
                 let (stream, _) = listener.accept().await?;
                 let tx = tx.clone();
                 let acceptor = acceptor.clone();
+                let Some(permit) =
+                    acquire_connection_slot(&connection_limiter, &tx, max_connections).await
+                else {
+                    continue;
+                };
                 tokio::spawn(async move {
+                    let _permit = permit;
                     match acceptor.accept(stream).await {
                         Ok(tls_stream) => {
                             handle_stream(
@@ -142,31 +165,24 @@ async fn handle_stream<S>(
             return;
         }
         line_buf.clear();
-        loop {
-            let mut byte = [0u8; 1];
-            let n = match timeout(read_timeout, reader.read(&mut byte)).await {
-                Ok(Ok(n)) => n,
-                Ok(Err(_)) => return,
-                Err(_) => {
-                    let _ = tx
-                        .send(EngineEvent::PluginLog(
-                            "plugin stream read timeout; disconnecting".to_string(),
-                        ))
-                        .await;
-                    return;
-                }
-            };
-            if n == 0 {
-                break;
+        let n = match timeout(read_timeout, async {
+            let mut limited = (&mut reader).take((max_line_bytes + 1) as u64);
+            limited.read_until(b'\n', &mut line_buf).await
+        })
+        .await
+        {
+            Ok(Ok(n)) => n,
+            Ok(Err(_)) => return,
+            Err(_) => {
+                let _ = tx
+                    .send(EngineEvent::PluginLog(
+                        "plugin stream read timeout; disconnecting".to_string(),
+                    ))
+                    .await;
+                return;
             }
-            if line_buf.len() < max_line_bytes + 1 {
-                line_buf.push(byte[0]);
-            }
-            if byte[0] == b'\n' || line_buf.len() > max_line_bytes {
-                break;
-            }
-        }
-        if line_buf.is_empty() {
+        };
+        if n == 0 {
             return;
         }
         message_count = message_count.saturating_add(1);
@@ -332,6 +348,25 @@ async fn handle_stream<S>(
                 ..Default::default()
             };
             write_ack(&mut writer, ack).await;
+        }
+    }
+}
+
+async fn acquire_connection_slot(
+    limiter: &Arc<Semaphore>,
+    tx: &mpsc::Sender<EngineEvent>,
+    max_connections: usize,
+) -> Option<OwnedSemaphorePermit> {
+    match limiter.clone().try_acquire_owned() {
+        Ok(permit) => Some(permit),
+        Err(_) => {
+            let _ = tx
+                .send(EngineEvent::PluginLog(format!(
+                    "plugin connection dropped: active connection limit reached ({})",
+                    max_connections
+                )))
+                .await;
+            None
         }
     }
 }
@@ -544,6 +579,13 @@ fn ipc_max_messages_per_conn() -> anyhow::Result<u64> {
     }
 }
 
+fn ipc_max_connections() -> anyhow::Result<usize> {
+    match std::env::var(SENTINEL_IPC_MAX_CONNECTIONS) {
+        Ok(raw) => parse_ipc_max_connections(&raw),
+        Err(_) => Ok(DEFAULT_IPC_MAX_CONNECTIONS),
+    }
+}
+
 fn parse_ipc_max_line_bytes(raw: &str) -> anyhow::Result<usize> {
     let parsed = raw
         .parse::<usize>()
@@ -583,11 +625,25 @@ fn parse_ipc_max_messages_per_conn(raw: &str) -> anyhow::Result<u64> {
     Ok(parsed)
 }
 
+fn parse_ipc_max_connections(raw: &str) -> anyhow::Result<usize> {
+    let parsed = raw
+        .parse::<usize>()
+        .with_context(|| "SENTINEL_IPC_MAX_CONNECTIONS must be an integer")?;
+    if !(1..=MAX_IPC_MAX_CONNECTIONS).contains(&parsed) {
+        anyhow::bail!(
+            "SENTINEL_IPC_MAX_CONNECTIONS must be in [1, {}]",
+            MAX_IPC_MAX_CONNECTIONS
+        );
+    }
+    Ok(parsed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::net::SocketAddr;
     use std::path::PathBuf;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     #[test]
     fn parse_ipc_max_line_bytes_bounds() {
@@ -614,6 +670,13 @@ mod tests {
         );
         assert!(parse_ipc_max_messages_per_conn("0").is_err());
         assert!(parse_ipc_max_messages_per_conn("x").is_err());
+    }
+
+    #[test]
+    fn parse_ipc_max_connections_bounds() {
+        assert_eq!(parse_ipc_max_connections("1").expect("lower bound"), 1);
+        assert!(parse_ipc_max_connections("0").is_err());
+        assert!(parse_ipc_max_connections("x").is_err());
     }
 
     #[test]
@@ -667,6 +730,80 @@ mod tests {
             .contains("must not be group/world accessible"));
         let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn handle_stream_rejects_overlong_messages() {
+        let (client, server) = tokio::io::duplex(1024);
+        let (tx, _rx) = mpsc::channel(4);
+        let server_task = tokio::spawn(async move {
+            handle_stream(server, tx, 32, Duration::from_millis(1_000), 100).await;
+        });
+
+        let (reader, mut writer) = tokio::io::split(client);
+        writer
+            .write_all(
+                b"{\"type\":\"Register\",\"payload\":{\"plugin_id\":\"aaaaaaaaaaaaaaaa\"}}\n",
+            )
+            .await
+            .expect("write message");
+        writer.shutdown().await.expect("shutdown");
+
+        let mut reader = BufReader::new(reader);
+        let mut ack = String::new();
+        let n = reader.read_line(&mut ack).await.expect("read ack");
+        assert!(n > 0, "missing ack");
+        assert!(ack.contains("line_too_long"), "ack={ack}");
+
+        server_task.await.expect("join");
+    }
+
+    #[tokio::test]
+    async fn handle_stream_rejects_invalid_json() {
+        let (client, server) = tokio::io::duplex(1024);
+        let (tx, _rx) = mpsc::channel(4);
+        let server_task = tokio::spawn(async move {
+            handle_stream(server, tx, 256, Duration::from_millis(1_000), 100).await;
+        });
+
+        let (reader, mut writer) = tokio::io::split(client);
+        writer.write_all(b"{not-json}\n").await.expect("write json");
+        writer.shutdown().await.expect("shutdown");
+
+        let mut reader = BufReader::new(reader);
+        let mut ack = String::new();
+        let n = reader.read_line(&mut ack).await.expect("read ack");
+        assert!(n > 0, "missing ack");
+        assert!(ack.contains("\"status\":\"bad_request\""), "ack={ack}");
+
+        server_task.await.expect("join");
+    }
+
+    #[tokio::test]
+    async fn handle_stream_enforces_message_limit() {
+        let (client, server) = tokio::io::duplex(1024);
+        let (tx, _rx) = mpsc::channel(4);
+        let server_task = tokio::spawn(async move {
+            handle_stream(server, tx, 1024, Duration::from_millis(1_000), 1).await;
+        });
+
+        let (reader, mut writer) = tokio::io::split(client);
+        writer
+            .write_all(b"{\"type\":\"Register\",\"payload\":{\"plugin_id\":\"demo\"}}\n")
+            .await
+            .expect("write register");
+        writer.flush().await.expect("flush register");
+        writer.shutdown().await.expect("shutdown");
+
+        let mut reader = BufReader::new(reader);
+        let mut ack1 = String::new();
+        let mut ack2 = String::new();
+        assert!(reader.read_line(&mut ack1).await.expect("read ack1") > 0);
+        assert!(reader.read_line(&mut ack2).await.expect("read ack2") > 0);
+        assert!(ack1.contains("\"status\":\"ok\""), "ack1={ack1}");
+        assert!(ack2.contains("message_limit_exceeded"), "ack2={ack2}");
+
+        server_task.await.expect("join");
     }
 
     #[cfg(unix)]

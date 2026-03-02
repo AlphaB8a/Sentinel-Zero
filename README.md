@@ -38,6 +38,7 @@ Verification enforces `scope=sentinel-only-promotion`, signed payload integrity,
   - Optional hard limit override: `SENTINEL_IPC_MAX_LINE_BYTES` (range: `1024..=1048576`, default `65536`)
   - Optional read timeout override: `SENTINEL_IPC_READ_TIMEOUT_MS` (range: `1000..=300000`, default `30000`)
   - Optional per-connection message cap: `SENTINEL_IPC_MAX_MESSAGES_PER_CONN` (range: `1..=1000000`, default `10000`)
+  - Optional concurrent connection cap: `SENTINEL_IPC_MAX_CONNECTIONS` (range: `1..=100000`, default `256`)
 - Trust-root lifecycle operations:
   - `kernelkit profile rotate-trust-root ...`
   - `kernelkit profile audit-verify <audit_chain.ndjson>`
@@ -46,6 +47,19 @@ Verification enforces `scope=sentinel-only-promotion`, signed payload integrity,
   - `kernelkit profile verify-attestation <build.attestation.slsa.json>`
   - `--kms-sign-cmd` now requires an absolute executable path (no args), non-symlink, non-group/world-writable, and must return a 64-byte Ed25519 signature in base64.
   - KMS command invocation is stdin-closed and enforces bounded payload/signature size.
+
+## Continuous Enterprise Sweeps
+One command runs repeated deterministic sweeps and writes strict logs:
+
+```bash
+# default N=25 (must be in [15, 30])
+./scripts/sweeps/run_enterprise_sweeps.sh
+
+# explicit N
+./scripts/sweeps/run_enterprise_sweeps.sh 15
+```
+
+Per-sweep logs are emitted to `docs/sweeps/Opt.Sweep_XX`.
 
 ## IPC
 Plugins connect via newline-delimited JSON (NDJSON) over a Unix socket.

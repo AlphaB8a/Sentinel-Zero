@@ -177,3 +177,21 @@ Session ID: 9e38606b-e2a1-4276-b5f8-9975f24b3cf3
   - `cargo clippy --workspace -- -D warnings` PASS
   - all security gates PASS
   - isolated sandbox sweep PASS (`scripts/sweeps/run_sandbox_suite.sh`)
+
+## 2026-03-02 IPC Abuse Gate + Continuous Enterprise Sweep Runner
+- Hardened IPC stream handling in `crates/sentinel_core/src/engine/plugin_host.rs`:
+  - Replaced byte-by-byte read loop with buffered `read_until` under a whole-line timeout boundary.
+  - Added `SENTINEL_IPC_MAX_CONNECTIONS` (default `256`, range `1..=100000`) to cap concurrent live connections.
+  - New connection-limit enforcement drops excess connections with explicit host log event.
+- Added targeted safe break-it tests in `plugin_host`:
+  - Overlong line rejection (`line_too_long`)
+  - Invalid JSON rejection (`bad_request`)
+  - Per-connection message cap enforcement (`message_limit_exceeded`)
+- Added enterprise IPC abuse CI gate:
+  - New script `scripts/gates/ipc_abuse_gate.sh`
+  - Wired into `.github/workflows/ci.yml`
+  - Wired into `scripts/sweeps/run_sandbox_suite.sh`
+- Added WOW operational runner:
+  - New `scripts/sweeps/run_enterprise_sweeps.sh` (N in `15..30`, default `25`)
+  - Emits strict per-sweep logs at `docs/sweeps/Opt.Sweep_XX`
+  - Tracks pass rate and best 100%-pass streak for continuous hardening programs.
