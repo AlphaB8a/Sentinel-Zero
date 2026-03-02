@@ -33,6 +33,15 @@ A **stream transport** is required. Implementations MAY support multiple transpo
   - Current host implementation enforces max line bytes and rejects over-limit payloads with
     `{"status":"bad_request","error":"line_too_long"}`; override via
     `SENTINEL_IPC_MAX_LINE_BYTES` (`1024..=1048576`).
+  - Current host implementation enforces stream read timeout via
+    `SENTINEL_IPC_READ_TIMEOUT_MS` (`1000..=300000`, default `30000`).
+  - Current host implementation enforces per-connection message cap via
+    `SENTINEL_IPC_MAX_MESSAGES_PER_CONN` (`1..=1000000`, default `10000`).
+  - Current host implementation denies non-loopback TCP binds by default unless
+    `SENTINEL_ALLOW_NON_LOOPBACK_BIND=1` is explicitly set.
+  - Current host implementation validates Unix socket parent directory permissions and
+    refuses group/world-accessible parents unless
+    `SENTINEL_IPC_ALLOW_INSECURE_DIR_PERMS=1` is explicitly set.
 
 ## Requests (NDJSON)
 All requests are JSON objects tagged by `type` with `payload` as the content.
@@ -88,4 +97,6 @@ The host replies with exactly one NDJSON line per request.
 - Unix sockets SHOULD be placed in a user-owned directory with 0700 and socket 0600.
 - TCP transport SHOULD bind only to loopback (127.0.0.1) by default.
 - For enterprise deployments, `tcp+tls` SHOULD be used with mandatory client-certificate auth.
+- Host/plugin TLS key files SHOULD be owner-only readable on Unix; current implementation enforces this by default.
+- Host/plugin TLS key files SHOULD NOT be symlinks; current implementation enforces this by default.
 - Hosts SHOULD validate inputs and enforce limits to avoid plugin-induced denial-of-service.

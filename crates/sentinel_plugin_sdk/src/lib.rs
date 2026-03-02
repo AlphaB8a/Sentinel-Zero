@@ -1,8 +1,8 @@
 use anyhow::Context;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer, ServerName};
 use rustls::{ClientConfig, RootCertStore};
 use sentinel_protocol::ListenSpec;
-use std::{fs, io::BufReader, sync::Arc};
+use std::{fs, sync::Arc};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpStream, UnixStream};
 use tokio_rustls::{client::TlsStream, TlsConnector};
@@ -88,6 +88,7 @@ fn tls_connector_from_env() -> anyhow::Result<TlsConnector> {
     }
 
     let certs = load_certs(&cert_file).with_context(|| format!("read cert file {}", cert_file))?;
+    validate_tls_key_permissions(&key_file)?;
     let key = load_key(&key_file).with_context(|| format!("read key file {}", key_file))?;
 
     let config = ClientConfig::builder()
@@ -99,8 +100,7 @@ fn tls_connector_from_env() -> anyhow::Result<TlsConnector> {
 
 fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
     let pem = fs::read(path)?;
-    let mut reader = BufReader::new(pem.as_slice());
-    let certs = rustls_pemfile::certs(&mut reader)
+    let certs = CertificateDer::pem_slice_iter(&pem)
         .collect::<Result<Vec<_>, _>>()
         .context("parse certs")?;
     if certs.is_empty() {
@@ -111,9 +111,35 @@ fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
 
 fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
     let pem = fs::read(path)?;
-    let mut reader = BufReader::new(pem.as_slice());
-    let key = rustls_pemfile::private_key(&mut reader)
-        .context("parse private key")?
-        .ok_or_else(|| anyhow::anyhow!("no private key found in {}", path))?;
+    let key = PrivateKeyDer::from_pem_slice(&pem).context("parse private key")?;
     Ok(key)
+}
+
+fn validate_tls_key_permissions(path: &str) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if std::env::var("SENTINEL_TLS_ALLOW_INSECURE_KEY_PERMS")
+            .ok()
+            .as_deref()
+            == Some("1")
+        {
+            return Ok(());
+        }
+        let link_meta =
+            fs::symlink_metadata(path).with_context(|| format!("tls key metadata {}", path))?;
+        if link_meta.file_type().is_symlink() {
+            anyhow::bail!("tls key file must not be a symlink: {}", path);
+        }
+        let meta = fs::metadata(path).with_context(|| format!("tls key metadata {}", path))?;
+        let mode = meta.permissions().mode();
+        if mode & 0o077 != 0 {
+            anyhow::bail!(
+                "tls key file must not be group/world accessible: {} mode={:o}",
+                path,
+                mode & 0o777
+            );
+        }
+    }
+    Ok(())
 }

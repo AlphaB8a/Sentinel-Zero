@@ -130,3 +130,50 @@ Session ID: 9e38606b-e2a1-4276-b5f8-9975f24b3cf3
   - `cargo audit` reports no vulnerabilities (one non-vulnerability unmaintained warning remains: `rustls-pemfile`).
 - Repository audit note:
   - GitHub repo visibility confirmed as public (`AlphaB8a/Sentinel-Zero`, `isPrivate=false`).
+
+## 2026-03-02 Continuous Hardening Sweeps (Enterprise QA Program)
+- Removed unmaintained PEM parser dependency from runtime path:
+  - Dropped `rustls-pemfile` from `sentinel_core` and `sentinel_plugin_sdk`.
+  - Switched PEM parsing to `rustls::pki_types::pem::PemObject` APIs.
+- Added IPC abuse hardening controls in host:
+  - `SENTINEL_IPC_READ_TIMEOUT_MS` (default `30000`)
+  - `SENTINEL_IPC_MAX_MESSAGES_PER_CONN` (default `10000`)
+  - Existing `SENTINEL_IPC_MAX_LINE_BYTES` retained.
+  - Connection drops on read timeout or per-connection message-cap exhaustion.
+- Added targeted regression tests for IPC hardening config parsers in `plugin_host` unit tests.
+- Added TLS key-file permission enforcement (Unix) in host and SDK:
+  - Rejects group/world-readable key files by default.
+  - Explicit legacy override: `SENTINEL_TLS_ALLOW_INSECURE_KEY_PERMS=1`.
+- Hardened KMS signer command handling:
+  - stdin is closed (`Stdio::null`) for command invocation.
+  - payload and signature output size bounds enforced.
+  - Added regression tests for command validation and signature-size checks.
+- CI hardening:
+  - Added `cargo clippy --workspace -- -D warnings`.
+  - Added `scripts/gates/secrets_pattern_gate.sh` for token/key pattern scanning.
+- Added reproducible isolated sweep runner:
+  - `scripts/sweeps/run_sandbox_suite.sh`
+  - Creates temp `CARGO_HOME` / `CARGO_TARGET_DIR` and runs locked + gate suite.
+
+## 2026-03-02 Sweep Extension: Bind-Surface + Path-Safety Hardening
+- Hardened plugin host bind policy in `crates/sentinel_core/src/engine/plugin_host.rs`:
+  - Reject non-loopback `tcp:` / `tcp+tls:` binds by default.
+  - Explicit override required: `SENTINEL_ALLOW_NON_LOOPBACK_BIND=1`.
+  - Added regression tests for loopback/non-loopback policy behavior.
+- Hardened Unix socket handling:
+  - Enforce secure parent directory permissions by default (owner-only).
+  - Explicit override required: `SENTINEL_IPC_ALLOW_INSECURE_DIR_PERMS=1`.
+  - Refuse deleting existing non-socket path at bind location.
+  - Force socket permissions to `0600` after bind.
+- Hardened TLS key path handling in host + SDK:
+  - Reject symlinked key paths (in addition to owner-only permission checks).
+- Hardened KernelKit local signer surfaces:
+  - `--kms-sign-cmd` rejects symlink paths.
+  - `--signing-key-file` rejects symlink paths.
+  - Added unit tests for both symlink rejection cases.
+- Verification:
+  - `cargo fmt --all` PASS
+  - `cargo test --workspace` PASS
+  - `cargo clippy --workspace -- -D warnings` PASS
+  - all security gates PASS
+  - isolated sandbox sweep PASS (`scripts/sweeps/run_sandbox_suite.sh`)

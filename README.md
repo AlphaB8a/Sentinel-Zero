@@ -32,14 +32,20 @@ Verification enforces `scope=sentinel-only-promotion`, signed payload integrity,
 ## Enterprise Hardening Surfaces
 - mTLS plugin transport mode: `tcp+tls:<addr>` / `tcps:<addr>`
   - Requires `SENTINEL_TLS_CERT_FILE`, `SENTINEL_TLS_KEY_FILE`, `SENTINEL_TLS_CA_FILE`
+  - TLS key file permissions are enforced on Unix (no group/world access, no symlinks); override only for legacy setups with `SENTINEL_TLS_ALLOW_INSECURE_KEY_PERMS=1`.
+  - Non-loopback TCP bind is denied by default; opt-in only with `SENTINEL_ALLOW_NON_LOOPBACK_BIND=1`.
+  - Unix socket parent directory permissions are checked (owner-only by default); override only for legacy setups with `SENTINEL_IPC_ALLOW_INSECURE_DIR_PERMS=1`.
   - Optional hard limit override: `SENTINEL_IPC_MAX_LINE_BYTES` (range: `1024..=1048576`, default `65536`)
+  - Optional read timeout override: `SENTINEL_IPC_READ_TIMEOUT_MS` (range: `1000..=300000`, default `30000`)
+  - Optional per-connection message cap: `SENTINEL_IPC_MAX_MESSAGES_PER_CONN` (range: `1..=1000000`, default `10000`)
 - Trust-root lifecycle operations:
   - `kernelkit profile rotate-trust-root ...`
   - `kernelkit profile audit-verify <audit_chain.ndjson>`
 - Signed provenance/SBOM attestation:
   - `kernelkit profile attest-build ...`
   - `kernelkit profile verify-attestation <build.attestation.slsa.json>`
-  - `--kms-sign-cmd` now requires an absolute executable path (no args), non-group/world-writable, and must return a 64-byte Ed25519 signature in base64.
+  - `--kms-sign-cmd` now requires an absolute executable path (no args), non-symlink, non-group/world-writable, and must return a 64-byte Ed25519 signature in base64.
+  - KMS command invocation is stdin-closed and enforces bounded payload/signature size.
 
 ## IPC
 Plugins connect via newline-delimited JSON (NDJSON) over a Unix socket.

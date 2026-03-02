@@ -17,7 +17,9 @@ Status: in progress (manual gates pending)
 - [x] cargo build --release
 - [x] cargo test
 - [x] cargo clippy --all-targets -- -D warnings
+- [x] secrets pattern gate: `./scripts/gates/secrets_pattern_gate.sh`
 - [x] cargo audit gate (no known vulnerabilities): `./scripts/gates/cargo_audit_gate.sh`
+- [x] isolated sandbox sweep runner: `./scripts/sweeps/run_sandbox_suite.sh`
 
 ### Sentinel Native Headless Gate
 - [x] ALERT_SET collector.offline.demo.bridge @ 2026-01-25T01:30:21.713767Z

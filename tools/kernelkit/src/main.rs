@@ -14,7 +14,7 @@ use std::{
     io::IsTerminal,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    process::Command as ProcessCommand,
+    process::{Command as ProcessCommand, Stdio},
 };
 
 use crate::{
@@ -472,6 +472,9 @@ enum SigningProvider {
     KmsCommand(String),
 }
 
+const MAX_KMS_PAYLOAD_B64_BYTES: usize = 128 * 1024;
+const MAX_KMS_SIGNATURE_B64_BYTES: usize = 1024;
+
 fn resolve_signing_provider(
     signing_key_b64: Option<String>,
     signing_key_file: Option<String>,
@@ -498,6 +501,11 @@ fn resolve_signing_provider(
 }
 
 fn load_signing_key_file(path: &str) -> Result<String> {
+    let link_meta = fs::symlink_metadata(path)
+        .with_context(|| format!("signing key file metadata {}", path))?;
+    if link_meta.file_type().is_symlink() {
+        return Err(anyhow!("signing key file must not be a symlink: {}", path));
+    }
     let meta = fs::metadata(path).with_context(|| format!("signing key file metadata {}", path))?;
     let mode = meta.permissions().mode();
     if mode & 0o077 != 0 {
@@ -518,9 +526,17 @@ fn load_signing_key_file(path: &str) -> Result<String> {
 }
 
 fn run_kms_sign_command(cmd: &str, key_id: &str, payload_b64: &str) -> Result<String> {
+    if payload_b64.len() > MAX_KMS_PAYLOAD_B64_BYTES {
+        return Err(anyhow!(
+            "kms sign payload too large: {} bytes (max {})",
+            payload_b64.len(),
+            MAX_KMS_PAYLOAD_B64_BYTES
+        ));
+    }
     let output = ProcessCommand::new(cmd)
         .arg(key_id)
         .arg(payload_b64)
+        .stdin(Stdio::null())
         .output()
         .with_context(|| format!("run kms sign command: {}", cmd))?;
     if !output.status.success() {
@@ -536,6 +552,12 @@ fn run_kms_sign_command(cmd: &str, key_id: &str, payload_b64: &str) -> Result<St
         .to_string();
     if signature.is_empty() {
         return Err(anyhow!("kms sign command returned empty signature"));
+    }
+    if signature.len() > MAX_KMS_SIGNATURE_B64_BYTES {
+        return Err(anyhow!(
+            "kms sign command returned oversized signature: {} bytes",
+            signature.len()
+        ));
     }
     validate_signature_b64_shape(&signature)?;
     Ok(signature)
@@ -557,6 +579,11 @@ fn validate_kms_sign_cmd(cmd: String) -> Result<String> {
             "kms sign command must be an absolute path, got '{}'",
             cmd
         ));
+    }
+    let link_meta =
+        fs::symlink_metadata(path).with_context(|| format!("kms sign command metadata {}", cmd))?;
+    if link_meta.file_type().is_symlink() {
+        return Err(anyhow!("kms sign command must not be a symlink: {}", cmd));
     }
     let meta = fs::metadata(path).with_context(|| format!("kms sign command metadata {}", cmd))?;
     if !meta.is_file() {
@@ -1075,4 +1102,77 @@ fn make_executable(path: PathBuf) -> Result<()> {
         fs::set_permissions(&path, perms)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::engine::general_purpose::STANDARD;
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::tempdir;
+
+    #[test]
+    fn kms_command_validation_requires_absolute_path() {
+        let err = validate_kms_sign_cmd("relative/script".to_string()).expect_err("must fail");
+        assert!(err.to_string().contains("absolute path"));
+    }
+
+    #[test]
+    fn kms_command_validation_rejects_group_world_writable() {
+        let tmp = tempdir().expect("tempdir");
+        let script = tmp.path().join("kms-sign.sh");
+        fs::write(&script, "#!/usr/bin/env bash\necho test\n").expect("write script");
+        let mut perms = fs::metadata(&script).expect("metadata").permissions();
+        perms.set_mode(0o777);
+        fs::set_permissions(&script, perms).expect("set perms");
+        let err = validate_kms_sign_cmd(script.display().to_string()).expect_err("must fail");
+        assert!(err.to_string().contains("must not be writable"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kms_command_validation_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+        let tmp = tempdir().expect("tempdir");
+        let script = tmp.path().join("kms-sign.sh");
+        fs::write(&script, "#!/usr/bin/env bash\necho test\n").expect("write script");
+        let mut perms = fs::metadata(&script).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script, perms).expect("set perms");
+        let symlink_path = tmp.path().join("kms-sign-link.sh");
+        symlink(&script, &symlink_path).expect("symlink");
+        let err = validate_kms_sign_cmd(symlink_path.display().to_string()).expect_err("must fail");
+        assert!(err.to_string().contains("must not be a symlink"));
+    }
+
+    #[test]
+    fn kms_command_rejects_oversized_payload() {
+        let payload = "A".repeat(MAX_KMS_PAYLOAD_B64_BYTES + 1);
+        let err = run_kms_sign_command("/bin/true", "key-1", &payload).expect_err("must fail");
+        assert!(err.to_string().contains("payload too large"));
+    }
+
+    #[test]
+    fn signature_shape_requires_64_bytes() {
+        let bad = STANDARD.encode(vec![0u8; 16]);
+        let err = validate_signature_b64_shape(&bad).expect_err("must fail");
+        assert!(err.to_string().contains("64-byte"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn signing_key_file_rejects_symlink() {
+        use std::os::unix::fs::symlink;
+        let tmp = tempdir().expect("tempdir");
+        let key_path = tmp.path().join("sentinel.key");
+        fs::write(&key_path, "ZmFrZXNlY3JldA==\n").expect("write key");
+        let mut perms = fs::metadata(&key_path).expect("metadata").permissions();
+        perms.set_mode(0o600);
+        fs::set_permissions(&key_path, perms).expect("set perms");
+        let symlink_path = tmp.path().join("sentinel.key.link");
+        symlink(&key_path, &symlink_path).expect("symlink");
+        let err =
+            load_signing_key_file(&symlink_path.display().to_string()).expect_err("must fail");
+        assert!(err.to_string().contains("must not be a symlink"));
+    }
 }
