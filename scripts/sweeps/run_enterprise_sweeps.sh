@@ -20,6 +20,7 @@ mkdir -p "${LOG_DIR}"
 success_count=0
 streak_100=0
 best_streak_100=0
+prev_perf_total_ms=""
 
 run_cached_sweep() {
   cargo test --workspace --locked
@@ -39,6 +40,7 @@ cargo fetch --locked >/dev/null
 for i in $(seq 1 "${N}"); do
   sweep_id="$(printf "%02d" "${i}")"
   log_path="${LOG_DIR}/Opt.Sweep_${sweep_id}"
+  log_file_name="$(basename "${log_path}")"
   tmp_out="$(mktemp)"
   started_utc="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -52,6 +54,20 @@ for i in $(seq 1 "${N}"); do
   if [[ -z "${perf_total_ms}" ]]; then
     perf_total_ms="UNKNOWN"
   fi
+  perf_delta_vs_prev="UNKNOWN"
+  if [[ "${perf_total_ms}" =~ ^[0-9]+$ ]] && [[ "${prev_perf_total_ms}" =~ ^[0-9]+$ ]]; then
+    delta=$((perf_total_ms - prev_perf_total_ms))
+    if (( delta > 0 )); then
+      perf_delta_vs_prev="+${delta}ms"
+    elif (( delta < 0 )); then
+      perf_delta_vs_prev="${delta}ms"
+    else
+      perf_delta_vs_prev="0ms"
+    fi
+  fi
+  if [[ "${perf_total_ms}" =~ ^[0-9]+$ ]]; then
+    prev_perf_total_ms="${perf_total_ms}"
+  fi
   gate_summary="$(grep -E '^\[gate\]|^\[sweep\]' "${tmp_out}" || true)"
 
   if [[ "${sweep_rc}" -eq 0 ]]; then
@@ -63,7 +79,7 @@ for i in $(seq 1 "${N}"); do
     sweep_status="PASS"
     tests_line="sandbox suite PASS (tests/clippy/gates)"
     vuln_line="No known vulnerabilities reported by cargo-audit gate"
-    perf_line="KernelKit verify perf gate total_ms=${perf_total_ms}"
+    perf_line="KernelKit verify perf gate total_ms=${perf_total_ms} (delta_vs_prev=${perf_delta_vs_prev})"
     remaining="No new runtime regressions observed in this sweep"
   else
     streak_100=0
@@ -77,6 +93,19 @@ for i in $(seq 1 "${N}"); do
   lock_diff="$(git diff --name-only -- Cargo.lock Cargo.toml || true)"
   api_diff="$(git diff --name-only -- crates/sentinel_protocol crates/sentinel_core/src/ipc docs/protocol/IPC_NDJSON_V1.md || true)"
   schema_diff="$(git diff --name-only -- docs/kernelkit/examples tools/kernelkit/src/plan.rs || true)"
+  contract_interfaces="IPC NDJSON v1 + sentinel_protocol::IpcMessage/Ack; kernelkit profile apply/verify/sign-receipt/attest/verify-attestation"
+  contract_invariants="fail-closed receipt verify; signed trust-root scope=sentinel-only-promotion; bounded IPC lines/timeouts/message caps/connections"
+  contract_versions="docs/protocol/IPC_NDJSON_V1.md; tools/kernelkit plan schema kernelkit.alpha.v0.1; Cargo.lock pinned"
+  contract_repro="cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh"
+
+  risk_item_1="R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior"
+  risk_item_2="R2|Low|Low|Open|Perf gate is single-host synthetic and may not map to all hardware"
+  risk_item_3="R3|Low|Low|Mitigated|IPC abuse paths now covered by targeted regression tests and gate"
+
+  radar_1="Continuous diagnostics dashboard|5|5|5|4|19"
+  radar_2="Connection-flood soak test harness|4|5|4|4|17"
+  radar_3="Policy-pack templates for deployment profiles|4|4|5|4|17"
+  radar_4="Structured runbook generator from sweep logs|3|4|5|5|17"
 
   {
     echo "Sweep #: ${i}"
@@ -91,6 +120,27 @@ for i in $(seq 1 "${N}"); do
     echo "    • Shipped major change: NO"
     echo "    • Evidence bundle (if YES): N/A"
     echo "    • If deferred: no major-change scope in this iteration"
+    echo "Pinned System Contract:"
+    echo "    - supported interfaces + behavior invariants: ${contract_interfaces}; ${contract_invariants}"
+    echo "    - versioned configs/schemas: ${contract_versions}"
+    echo "    - reproducible build/test commands: ${contract_repro}"
+    echo "Findings log:"
+    echo "    - F1: sweep_status=${sweep_status}; deterministic gate bundle executed"
+    echo "    - F2: perf_total_ms=${perf_total_ms}; perf_delta_vs_prev=${perf_delta_vs_prev}"
+    echo "    - F3: drift(lock/api/schema)=(${lock_diff:-NONE})|(${api_diff:-NONE})|(${schema_diff:-NONE})"
+    echo "Risk register (severity|likelihood|status):"
+    echo "    - ${risk_item_1}"
+    echo "    - ${risk_item_2}"
+    echo "    - ${risk_item_3}"
+    echo "Upgrade Radar backlog (WOW|Enterprise|Maintainability|EffortInv|Total):"
+    echo "    - ${radar_1}"
+    echo "    - ${radar_2}"
+    echo "    - ${radar_3}"
+    echo "    - ${radar_4}"
+    echo "Top 3 next-sweep priorities:"
+    echo "    - P1: Extend IPC abuse suite with multi-connection saturation integration test (PROPOSED until implemented)."
+    echo "    - P2: Add sweep artifact trend index (perf + gate durations) for ops visibility (PROPOSED until implemented)."
+    echo "    - P3: Add license/abandonware explicit gate output parsing in logs (PROPOSED until implemented)."
     echo "Assumption Ledger:"
     echo "    OBSERVED:"
     echo "      - sweep_status=${sweep_status}"
@@ -114,6 +164,7 @@ for i in $(seq 1 "${N}"); do
     else
       echo "(no gate summary captured)"
     fi
+    echo "Log file: ${log_file_name}"
   } >"${log_path}"
 
   echo "[enterprise-sweep] ${i}/${N} ${sweep_status} -> ${log_path}"
