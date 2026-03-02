@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::audit;
 use crate::plan::{Plan as KKPlan, PromotionReceipt, TrustRoot};
 use crate::receipt::{read_json_file, sha256_hex, verify_receipt_signature, SENTINEL_ONLY_SCOPE};
 
@@ -12,6 +13,7 @@ use crate::receipt::{read_json_file, sha256_hex, verify_receipt_signature, SENTI
 pub struct VerifyOptions {
     pub receipt_path: Option<PathBuf>,
     pub trust_root_path: Option<PathBuf>,
+    pub audit_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,6 +24,7 @@ pub struct VerifyOutcome {
     pub key_id: String,
     pub receipt_path: PathBuf,
     pub trust_root_path: PathBuf,
+    pub audit_path: PathBuf,
 }
 
 pub fn verify_apply_dir(apply_dir: &Path, options: &VerifyOptions) -> Result<VerifyOutcome> {
@@ -120,9 +123,11 @@ pub fn verify_apply_dir(apply_dir: &Path, options: &VerifyOptions) -> Result<Ver
         key_id: receipt.signature.key_id,
         receipt_path,
         trust_root_path,
+        audit_path: resolve_audit_path(apply_dir, options.audit_path.clone())?,
     };
 
     write_verify_report(apply_dir, &outcome)?;
+    audit::append_success_event(&outcome.audit_path, &outcome)?;
     Ok(outcome)
 }
 
@@ -142,6 +147,16 @@ fn resolve_trust_root_path(apply_dir: &Path, override_path: Option<PathBuf>) -> 
     ))
 }
 
+fn resolve_audit_path(apply_dir: &Path, override_path: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(path) = override_path {
+        return Ok(path);
+    }
+    if let Ok(path) = std::env::var("SENTINEL_AUDIT_CHAIN_FILE") {
+        return Ok(PathBuf::from(path));
+    }
+    Ok(apply_dir.join("after/promotion_audit_chain.ndjson"))
+}
+
 fn write_verify_report(apply_dir: &Path, outcome: &VerifyOutcome) -> Result<()> {
     let after_dir = apply_dir.join("after");
     fs::create_dir_all(&after_dir)
@@ -155,6 +170,7 @@ fn write_verify_report(apply_dir: &Path, outcome: &VerifyOutcome) -> Result<()> 
         "key_id": outcome.key_id,
         "receipt_path": outcome.receipt_path,
         "trust_root_path": outcome.trust_root_path,
+        "audit_path": outcome.audit_path,
     });
     fs::write(
         after_dir.join("verify.json"),
@@ -226,6 +242,10 @@ mod tests {
             keys: vec![crate::plan::TrustRootKey {
                 key_id: "root-pass-fixture".to_string(),
                 public_key_b64: verifying_key_b64,
+                source: crate::plan::KeySource::Kms,
+                rotation_epoch: 1,
+                not_before: Some("2026-01-01T00:00:00Z".to_string()),
+                not_after: Some("2027-01-01T00:00:00Z".to_string()),
                 status: crate::plan::TrustRootKeyStatus::Active,
             }],
         };
@@ -245,11 +265,16 @@ mod tests {
             &VerifyOptions {
                 receipt_path: None,
                 trust_root_path: None,
+                audit_path: None,
             },
         )
         .expect("verify pass");
         assert_eq!(out.plan_id, "pass-plan");
         assert!(tmp.path().join("after/verify.json").exists());
+        assert!(tmp
+            .path()
+            .join("after/promotion_audit_chain.ndjson")
+            .exists());
     }
 
     #[test]
@@ -261,6 +286,7 @@ mod tests {
             &VerifyOptions {
                 receipt_path: None,
                 trust_root_path: None,
+                audit_path: None,
             },
         )
         .expect_err("verify should fail");

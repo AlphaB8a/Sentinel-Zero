@@ -228,6 +228,14 @@ pub struct TrustRoot {
 pub struct TrustRootKey {
     pub key_id: String,
     pub public_key_b64: String,
+    #[serde(default)]
+    pub source: KeySource,
+    #[serde(default)]
+    pub rotation_epoch: u32,
+    #[serde(default)]
+    pub not_before: Option<String>,
+    #[serde(default)]
+    pub not_after: Option<String>,
     pub status: TrustRootKeyStatus,
 }
 
@@ -237,4 +245,13 @@ pub enum TrustRootKeyStatus {
     Active,
     Revoked,
     Retired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum KeySource {
+    #[default]
+    Local,
+    Kms,
+    Hsm,
 }

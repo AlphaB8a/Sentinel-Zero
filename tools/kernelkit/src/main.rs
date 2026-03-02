@@ -1,22 +1,28 @@
+mod audit;
 mod normalize;
 mod plan;
 mod receipt;
 mod verify;
 
 use anyhow::{anyhow, Context, Result};
+use base64::Engine as _;
 use chrono::{SecondsFormat, Utc};
 use clap::{Parser, Subcommand};
 use serde_json::json;
 use std::{
     fs,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    process::Command as ProcessCommand,
 };
 
 use crate::{
-    plan::{ApplyMode, Plan as KKPlan, PromotionReceiptPayload},
+    audit::verify_chain,
+    plan::{ApplyMode, KeySource, Plan as KKPlan, PromotionReceiptPayload, TrustRoot},
     receipt::{
-        build_signed_receipt, build_trust_root_from_signing_key, sha256_hex,
-        write_receipt_template, write_trust_root_template, SENTINEL_ONLY_SCOPE,
+        build_receipt_from_signature, build_signed_receipt, build_trust_root_from_public_key,
+        build_trust_root_from_signing_key, read_json_file, sha256_hex, write_receipt_template,
+        write_trust_root_template, SENTINEL_ONLY_SCOPE,
     },
     verify::{verify_apply_dir, VerifyOptions},
 };
@@ -55,11 +61,17 @@ enum ProfileCmd {
         receipt: Option<String>,
         #[arg(long)]
         trust_root: Option<String>,
+        #[arg(long)]
+        audit: Option<String>,
     },
     SignReceipt {
         apply_dir: String,
         #[arg(long)]
-        signing_key_b64: String,
+        signing_key_b64: Option<String>,
+        #[arg(long)]
+        signing_key_file: Option<String>,
+        #[arg(long)]
+        kms_sign_cmd: Option<String>,
         #[arg(long)]
         key_id: String,
         #[arg(long)]
@@ -67,7 +79,60 @@ enum ProfileCmd {
         #[arg(long)]
         trust_root_out: Option<String>,
         #[arg(long)]
+        public_key_b64: Option<String>,
+        #[arg(long)]
+        key_source: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        rotation_epoch: u32,
+        #[arg(long)]
+        not_before: Option<String>,
+        #[arg(long)]
+        not_after: Option<String>,
+        #[arg(long)]
         issued_at: Option<String>,
+    },
+    AttestBuild {
+        #[arg(long, default_value = ".")]
+        workspace: String,
+        #[arg(long, default_value = "artifacts/attestations")]
+        out_dir: String,
+        #[arg(long)]
+        signing_key_b64: Option<String>,
+        #[arg(long)]
+        signing_key_file: Option<String>,
+        #[arg(long)]
+        kms_sign_cmd: Option<String>,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        public_key_b64: Option<String>,
+        #[arg(long)]
+        key_source: Option<String>,
+    },
+    VerifyAttestation {
+        file: String,
+    },
+    RotateTrustRoot {
+        trust_root: String,
+        #[arg(long)]
+        new_key_id: String,
+        #[arg(long)]
+        new_public_key_b64: String,
+        #[arg(long)]
+        key_source: Option<String>,
+        #[arg(long, default_value_t = 1)]
+        rotation_epoch: u32,
+        #[arg(long)]
+        not_before: Option<String>,
+        #[arg(long)]
+        not_after: Option<String>,
+        #[arg(long)]
+        revoke_key_id: Vec<String>,
+        #[arg(long)]
+        out: Option<String>,
+    },
+    AuditVerify {
+        audit_chain: String,
     },
     Rollback {
         apply_dir: String,
@@ -104,6 +169,7 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
             apply_dir,
             receipt,
             trust_root,
+            audit,
         } => {
             let dir = PathBuf::from(apply_dir);
             let outcome = verify_apply_dir(
@@ -111,6 +177,7 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
                 &VerifyOptions {
                     receipt_path: receipt.map(PathBuf::from),
                     trust_root_path: trust_root.map(PathBuf::from),
+                    audit_path: audit.map(PathBuf::from),
                 },
             )?;
             println!(
@@ -125,9 +192,16 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
         ProfileCmd::SignReceipt {
             apply_dir,
             signing_key_b64,
+            signing_key_file,
+            kms_sign_cmd,
             key_id,
             out,
             trust_root_out,
+            public_key_b64,
+            key_source,
+            rotation_epoch,
+            not_before,
+            not_after,
             issued_at,
         } => {
             let dir = PathBuf::from(apply_dir);
@@ -152,7 +226,24 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
                 issued_at: issued_at
                     .unwrap_or_else(|| Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)),
             };
-            let receipt = build_signed_receipt(payload, key_id.clone(), &signing_key_b64)?;
+            let provider =
+                resolve_signing_provider(signing_key_b64, signing_key_file, kms_sign_cmd)?;
+            let source = parse_key_source(key_source.as_deref().unwrap_or("kms"))?;
+            let receipt = match &provider {
+                SigningProvider::RawB64(secret) => {
+                    build_signed_receipt(payload, key_id.clone(), secret)?
+                }
+                SigningProvider::File(secret) => {
+                    build_signed_receipt(payload, key_id.clone(), secret)?
+                }
+                SigningProvider::KmsCommand(cmd) => {
+                    let payload_bytes = crate::receipt::canonical_payload_bytes(&payload)?;
+                    let payload_b64 =
+                        base64::engine::general_purpose::STANDARD.encode(payload_bytes);
+                    let signature_b64 = run_kms_sign_command(cmd, &key_id, &payload_b64)?;
+                    build_receipt_from_signature(payload, key_id.clone(), signature_b64)?
+                }
+            };
             let out_path = out
                 .map(PathBuf::from)
                 .unwrap_or_else(|| dir.join("promotion.receipt.json"));
@@ -161,7 +252,26 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
                 format!("{}\n", serde_json::to_string_pretty(&receipt)?),
             )
             .with_context(|| format!("sign-receipt: write {}", out_path.display()))?;
-            let trust_root = build_trust_root_from_signing_key(&signing_key_b64, key_id)?;
+            let trust_root = match &provider {
+                SigningProvider::RawB64(secret) | SigningProvider::File(secret) => {
+                    build_trust_root_from_signing_key(secret, key_id)?
+                }
+                SigningProvider::KmsCommand(_) => {
+                    let pub_key = public_key_b64.ok_or_else(|| {
+                        anyhow!(
+                            "sign-receipt: --public-key-b64 is required when using --kms-sign-cmd"
+                        )
+                    })?;
+                    build_trust_root_from_public_key(
+                        key_id,
+                        pub_key,
+                        source,
+                        rotation_epoch,
+                        not_before,
+                        not_after,
+                    )?
+                }
+            };
             let trust_root_path = trust_root_out
                 .map(PathBuf::from)
                 .unwrap_or_else(|| dir.join("trust-root.json"));
@@ -176,6 +286,91 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
                 out_path.display(),
                 trust_root_path.display()
             );
+            Ok(())
+        }
+        ProfileCmd::AttestBuild {
+            workspace,
+            out_dir,
+            signing_key_b64,
+            signing_key_file,
+            kms_sign_cmd,
+            key_id,
+            public_key_b64,
+            key_source,
+        } => {
+            let provider =
+                resolve_signing_provider(signing_key_b64, signing_key_file, kms_sign_cmd)?;
+            let workspace_path = PathBuf::from(&workspace);
+            let out_dir_path = PathBuf::from(&out_dir);
+            generate_build_attestation(
+                &workspace_path,
+                &out_dir_path,
+                &provider,
+                &key_id,
+                public_key_b64,
+                parse_key_source(key_source.as_deref().unwrap_or("kms"))?,
+            )?;
+            println!("KERNELKIT_ATTEST_BUILD_OK out_dir={}", out_dir);
+            Ok(())
+        }
+        ProfileCmd::VerifyAttestation { file } => {
+            verify_build_attestation(&PathBuf::from(file))?;
+            println!("KERNELKIT_VERIFY_ATTESTATION_OK");
+            Ok(())
+        }
+        ProfileCmd::RotateTrustRoot {
+            trust_root,
+            new_key_id,
+            new_public_key_b64,
+            key_source,
+            rotation_epoch,
+            not_before,
+            not_after,
+            revoke_key_id,
+            out,
+        } => {
+            let trust_root_path = PathBuf::from(trust_root);
+            let mut root: TrustRoot =
+                read_json_file(&trust_root_path, "trust root").with_context(|| {
+                    format!("rotate-trust-root: read {}", trust_root_path.display())
+                })?;
+            for key in &mut root.keys {
+                if key.status == crate::plan::TrustRootKeyStatus::Active {
+                    key.status = crate::plan::TrustRootKeyStatus::Retired;
+                }
+                if revoke_key_id.iter().any(|id| id == &key.key_id) {
+                    key.status = crate::plan::TrustRootKeyStatus::Revoked;
+                }
+            }
+            if root.keys.iter().any(|k| k.key_id == new_key_id) {
+                return Err(anyhow!(
+                    "rotate-trust-root: key_id already exists: {}",
+                    new_key_id
+                ));
+            }
+            root.keys.push(crate::plan::TrustRootKey {
+                key_id: new_key_id,
+                public_key_b64: new_public_key_b64,
+                source: parse_key_source(key_source.as_deref().unwrap_or("kms"))?,
+                rotation_epoch,
+                not_before,
+                not_after,
+                status: crate::plan::TrustRootKeyStatus::Active,
+            });
+            crate::receipt::validate_trust_root_contract(&root)?;
+            let out_path = out.map(PathBuf::from).unwrap_or(trust_root_path);
+            fs::write(
+                &out_path,
+                format!("{}\n", serde_json::to_string_pretty(&root)?),
+            )
+            .with_context(|| format!("rotate-trust-root: write {}", out_path.display()))?;
+            println!("KERNELKIT_TRUST_ROOT_ROTATE_OK out={}", out_path.display());
+            Ok(())
+        }
+        ProfileCmd::AuditVerify { audit_chain } => {
+            let p = PathBuf::from(audit_chain);
+            verify_chain(&p)?;
+            println!("KERNELKIT_AUDIT_VERIFY_OK file={}", p.display());
             Ok(())
         }
         ProfileCmd::Rollback { apply_dir } => {
@@ -268,6 +463,258 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
             Ok(())
         }
     }
+}
+
+enum SigningProvider {
+    RawB64(String),
+    File(String),
+    KmsCommand(String),
+}
+
+fn resolve_signing_provider(
+    signing_key_b64: Option<String>,
+    signing_key_file: Option<String>,
+    kms_sign_cmd: Option<String>,
+) -> Result<SigningProvider> {
+    let count = signing_key_b64.is_some() as u8
+        + signing_key_file.is_some() as u8
+        + kms_sign_cmd.is_some() as u8;
+    if count != 1 {
+        return Err(anyhow!(
+            "sign-receipt: exactly one of --signing-key-b64, --signing-key-file, --kms-sign-cmd must be set"
+        ));
+    }
+    if let Some(secret) = signing_key_b64 {
+        return Ok(SigningProvider::RawB64(secret));
+    }
+    if let Some(path) = signing_key_file {
+        let key = load_signing_key_file(&path)?;
+        return Ok(SigningProvider::File(key));
+    }
+    Ok(SigningProvider::KmsCommand(
+        kms_sign_cmd.expect("kms command present"),
+    ))
+}
+
+fn load_signing_key_file(path: &str) -> Result<String> {
+    let meta = fs::metadata(path).with_context(|| format!("signing key file metadata {}", path))?;
+    let mode = meta.permissions().mode();
+    if mode & 0o077 != 0 {
+        return Err(anyhow!(
+            "signing key file must not be group/world accessible: {} mode={:o}",
+            path,
+            mode & 0o777
+        ));
+    }
+    let secret = fs::read_to_string(path)
+        .with_context(|| format!("read signing key file {}", path))?
+        .trim()
+        .to_string();
+    if secret.is_empty() {
+        return Err(anyhow!("signing key file is empty: {}", path));
+    }
+    Ok(secret)
+}
+
+fn run_kms_sign_command(cmd: &str, key_id: &str, payload_b64: &str) -> Result<String> {
+    let output = ProcessCommand::new(cmd)
+        .arg(key_id)
+        .arg(payload_b64)
+        .output()
+        .with_context(|| format!("run kms sign command: {}", cmd))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "kms sign command failed (status={}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let signature = String::from_utf8(output.stdout)
+        .context("kms sign command output must be utf-8")?
+        .trim()
+        .to_string();
+    if signature.is_empty() {
+        return Err(anyhow!("kms sign command returned empty signature"));
+    }
+    Ok(signature)
+}
+
+fn parse_key_source(source: &str) -> Result<KeySource> {
+    match source.to_ascii_lowercase().as_str() {
+        "local" => Ok(KeySource::Local),
+        "kms" => Ok(KeySource::Kms),
+        "hsm" => Ok(KeySource::Hsm),
+        other => Err(anyhow!(
+            "unsupported key source '{}'; expected one of local|kms|hsm",
+            other
+        )),
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BuildProvenancePayload {
+    version: String,
+    scope: String,
+    generated_at: String,
+    git_head: String,
+    rustc: String,
+    cargo: String,
+    cargo_lock_sha256: String,
+    sbom_sha256: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct BuildAttestation {
+    statement_type: String,
+    signature_algorithm: String,
+    key_id: String,
+    key_source: String,
+    payload: BuildProvenancePayload,
+    signature_b64: String,
+    public_key_b64: String,
+}
+
+fn generate_build_attestation(
+    workspace: &Path,
+    out_dir: &Path,
+    provider: &SigningProvider,
+    key_id: &str,
+    public_key_b64_override: Option<String>,
+    key_source: KeySource,
+) -> Result<()> {
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("create attestation dir {}", out_dir.display()))?;
+
+    let cargo_lock = fs::read(workspace.join("Cargo.lock"))
+        .with_context(|| format!("read {}", workspace.join("Cargo.lock").display()))?;
+    let cargo_lock_sha256 = sha256_hex(&cargo_lock);
+
+    let sbom_bytes = ProcessCommand::new("cargo")
+        .arg("metadata")
+        .arg("--format-version")
+        .arg("1")
+        .arg("--manifest-path")
+        .arg(workspace.join("Cargo.toml"))
+        .output()
+        .context("run cargo metadata for sbom")?;
+    if !sbom_bytes.status.success() {
+        return Err(anyhow!(
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&sbom_bytes.stderr)
+        ));
+    }
+    fs::write(out_dir.join("sbom.cargo-metadata.json"), &sbom_bytes.stdout).with_context(|| {
+        format!(
+            "write {}",
+            out_dir.join("sbom.cargo-metadata.json").display()
+        )
+    })?;
+    let sbom_sha256 = sha256_hex(&sbom_bytes.stdout);
+
+    let git_head = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(workspace)
+        .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .context("get git head")?;
+    let git_head = if git_head.status.success() {
+        String::from_utf8(git_head.stdout)
+            .unwrap_or_else(|_| "unknown".to_string())
+            .trim()
+            .to_string()
+    } else {
+        "unknown".to_string()
+    };
+
+    let rustc = String::from_utf8(
+        ProcessCommand::new("rustc")
+            .arg("--version")
+            .output()
+            .context("run rustc --version")?
+            .stdout,
+    )
+    .unwrap_or_else(|_| "unknown".to_string())
+    .trim()
+    .to_string();
+    let cargo = String::from_utf8(
+        ProcessCommand::new("cargo")
+            .arg("--version")
+            .output()
+            .context("run cargo --version")?
+            .stdout,
+    )
+    .unwrap_or_else(|_| "unknown".to_string())
+    .trim()
+    .to_string();
+
+    let payload = BuildProvenancePayload {
+        version: "slsa-provenance.v1".to_string(),
+        scope: SENTINEL_ONLY_SCOPE.to_string(),
+        generated_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        git_head,
+        rustc,
+        cargo,
+        cargo_lock_sha256,
+        sbom_sha256,
+    };
+    let payload_bytes = serde_json::to_vec(&payload).context("serialize provenance payload")?;
+    let payload_b64 = base64::engine::general_purpose::STANDARD.encode(&payload_bytes);
+
+    let (signature_b64, public_key_b64) = match provider {
+        SigningProvider::RawB64(secret) | SigningProvider::File(secret) => (
+            crate::receipt::sign_payload_b64(secret, &payload_bytes)?,
+            crate::receipt::public_key_b64_from_signing_key(secret)?,
+        ),
+        SigningProvider::KmsCommand(cmd) => (
+            run_kms_sign_command(cmd, key_id, &payload_b64)?,
+            public_key_b64_override.ok_or_else(|| {
+                anyhow!("attest-build: --public-key-b64 required with --kms-sign-cmd")
+            })?,
+        ),
+    };
+
+    let attestation = BuildAttestation {
+        statement_type: "https://slsa.dev/provenance/v1".to_string(),
+        signature_algorithm: crate::receipt::SIGNATURE_ALGORITHM.to_string(),
+        key_id: key_id.to_string(),
+        key_source: format!("{:?}", key_source).to_lowercase(),
+        payload,
+        signature_b64,
+        public_key_b64,
+    };
+    fs::write(
+        out_dir.join("build.attestation.slsa.json"),
+        format!("{}\n", serde_json::to_string_pretty(&attestation)?),
+    )
+    .with_context(|| {
+        format!(
+            "write {}",
+            out_dir.join("build.attestation.slsa.json").display()
+        )
+    })?;
+    Ok(())
+}
+
+fn verify_build_attestation(path: &Path) -> Result<()> {
+    let raw =
+        fs::read(path).with_context(|| format!("read attestation file {}", path.display()))?;
+    let attestation: BuildAttestation =
+        serde_json::from_slice(&raw).context("parse attestation JSON")?;
+    let payload = serde_json::to_vec(&attestation.payload).context("serialize payload")?;
+    crate::receipt::verify_payload_signature_b64(
+        &attestation.public_key_b64,
+        &payload,
+        &attestation.signature_b64,
+    )?;
+    if attestation.payload.scope != SENTINEL_ONLY_SCOPE {
+        return Err(anyhow!(
+            "attestation scope mismatch: expected {}, got {}",
+            SENTINEL_ONLY_SCOPE,
+            attestation.payload.scope
+        ));
+    }
+    Ok(())
 }
 
 fn load_plan(path: &str) -> Result<KKPlan> {

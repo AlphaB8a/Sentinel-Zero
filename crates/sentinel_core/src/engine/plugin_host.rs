@@ -2,12 +2,18 @@ use crate::engine::EngineEvent;
 use crate::ipc::{listen::ListenSpec, protocol::IpcMessage};
 use crate::model::ActionCard;
 use anyhow::Context;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::{server::WebPkiClientVerifier, RootCertStore, ServerConfig};
 use sentinel_protocol::Ack;
 use serde_json::Value;
+use std::fs;
+use std::io::BufReader as StdBufReader;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::mpsc;
+use tokio_rustls::TlsAcceptor;
 
 /// Minimal NDJSON plugin host. Production hardening will:
 /// - bind under /run/user/$UID with 0700 dir, 0600 socket
@@ -39,6 +45,23 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
                 let tx = tx.clone();
                 tokio::spawn(async move {
                     handle_stream(stream, tx).await;
+                });
+            }
+        }
+        ListenSpec::TcpTls(addr) => {
+            let listener = TcpListener::bind(addr)
+                .await
+                .with_context(|| format!("bind tcp+tls {}", addr))?;
+            let acceptor = tls_acceptor_from_env()?;
+
+            loop {
+                let (stream, _) = listener.accept().await?;
+                let tx = tx.clone();
+                let acceptor = acceptor.clone();
+                tokio::spawn(async move {
+                    if let Ok(tls_stream) = acceptor.accept(stream).await {
+                        handle_stream(tls_stream, tx).await;
+                    }
                 });
             }
         }
@@ -203,4 +226,52 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+fn tls_acceptor_from_env() -> anyhow::Result<TlsAcceptor> {
+    let cert_file = std::env::var("SENTINEL_TLS_CERT_FILE")
+        .context("SENTINEL_TLS_CERT_FILE required for tcp+tls")?;
+    let key_file = std::env::var("SENTINEL_TLS_KEY_FILE")
+        .context("SENTINEL_TLS_KEY_FILE required for tcp+tls")?;
+    let ca_file = std::env::var("SENTINEL_TLS_CA_FILE")
+        .context("SENTINEL_TLS_CA_FILE required for tcp+tls")?;
+
+    let certs = load_certs(&cert_file).with_context(|| format!("read cert file {}", cert_file))?;
+    let key = load_key(&key_file).with_context(|| format!("read key file {}", key_file))?;
+    let mut roots = RootCertStore::empty();
+    for cert in load_certs(&ca_file).with_context(|| format!("read CA file {}", ca_file))? {
+        roots
+            .add(cert)
+            .with_context(|| format!("add CA cert from {}", ca_file))?;
+    }
+
+    let verifier = WebPkiClientVerifier::builder(Arc::new(roots))
+        .build()
+        .context("build mTLS client verifier")?;
+    let config = ServerConfig::builder()
+        .with_client_cert_verifier(verifier)
+        .with_single_cert(certs, key)
+        .context("build tls server config")?;
+    Ok(TlsAcceptor::from(Arc::new(config)))
+}
+
+fn load_certs(path: &str) -> anyhow::Result<Vec<CertificateDer<'static>>> {
+    let pem = fs::read(path)?;
+    let mut reader = StdBufReader::new(pem.as_slice());
+    let certs = rustls_pemfile::certs(&mut reader)
+        .collect::<Result<Vec<_>, _>>()
+        .context("parse certs")?;
+    if certs.is_empty() {
+        anyhow::bail!("no certs found in {}", path);
+    }
+    Ok(certs)
+}
+
+fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
+    let pem = fs::read(path)?;
+    let mut reader = StdBufReader::new(pem.as_slice());
+    let key = rustls_pemfile::private_key(&mut reader)
+        .context("parse private key")?
+        .ok_or_else(|| anyhow::anyhow!("no private key found in {}", path))?;
+    Ok(key)
 }

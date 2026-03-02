@@ -13,6 +13,14 @@ A **stream transport** is required. Implementations MAY support multiple transpo
 - Optional (useful in constrained environments): **TCP loopback**
   - Listen spec: `tcp:127.0.0.1:7777`
   - SHOULD bind to loopback by default.
+- Enterprise mode: **TCP loopback + mTLS**
+  - Listen spec: `tcp+tls:127.0.0.1:7777` (or `tcps:127.0.0.1:7777`)
+  - Host and plugin require:
+    - `SENTINEL_TLS_CERT_FILE`
+    - `SENTINEL_TLS_KEY_FILE`
+    - `SENTINEL_TLS_CA_FILE`
+  - Plugin optional:
+    - `SENTINEL_TLS_SERVER_NAME` (defaults to `localhost`)
 
 ## Framing
 - UTF-8 only.
@@ -76,4 +84,5 @@ The host replies with exactly one NDJSON line per request.
 ## Security Recommendations
 - Unix sockets SHOULD be placed in a user-owned directory with 0700 and socket 0600.
 - TCP transport SHOULD bind only to loopback (127.0.0.1) by default.
+- For enterprise deployments, `tcp+tls` SHOULD be used with mandatory client-certificate auth.
 - Hosts SHOULD validate inputs and enforce limits to avoid plugin-induced denial-of-service.

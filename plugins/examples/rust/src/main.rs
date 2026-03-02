@@ -67,6 +67,7 @@ async fn main() -> Result<()> {
     match stream {
         IpcStream::Unix(s) => run_stream(s, plugin_id).await?,
         IpcStream::Tcp(s) => run_stream(s, plugin_id).await?,
+        IpcStream::TcpTls(s) => run_stream(s, plugin_id).await?,
     }
 
     Ok(())

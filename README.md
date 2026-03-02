@@ -29,6 +29,16 @@ cargo run -p kernelkit -- profile verify /tmp/kk/<apply-id>
 
 Verification enforces `scope=sentinel-only-promotion`, signed payload integrity, trust-root key status, and writes `after/verify.json`.
 
+## Enterprise Hardening Surfaces
+- mTLS plugin transport mode: `tcp+tls:<addr>` / `tcps:<addr>`
+  - Requires `SENTINEL_TLS_CERT_FILE`, `SENTINEL_TLS_KEY_FILE`, `SENTINEL_TLS_CA_FILE`
+- Trust-root lifecycle operations:
+  - `kernelkit profile rotate-trust-root ...`
+  - `kernelkit profile audit-verify <audit_chain.ndjson>`
+- Signed provenance/SBOM attestation:
+  - `kernelkit profile attest-build ...`
+  - `kernelkit profile verify-attestation <build.attestation.slsa.json>`
+
 ## IPC
 Plugins connect via newline-delimited JSON (NDJSON) over a Unix socket.
 See `docs/protocol/IPC_NDJSON_V1.md`.
