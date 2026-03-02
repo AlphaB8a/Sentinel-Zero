@@ -46,11 +46,13 @@ pub async fn run_physics(tx: mpsc::Sender<EngineEvent>) {
                 })
                 .collect();
 
-            // Sort by CPU desc and keep top 40
+            // Sort by CPU desc, then PID asc for deterministic tie-breaks.
             rows.sort_by(|a, b| {
                 b.cpu
                     .partial_cmp(&a.cpu)
                     .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.pid.cmp(&b.pid))
+                    .then_with(|| a.name.cmp(&b.name))
             });
             rows.truncate(40);
 

@@ -31,6 +31,8 @@ Status: in progress (manual gates pending)
 ### KernelKit Determinism (Release Binary)
 - [x] resolved.sha256 match across runs
 - [x] resolved.sha256 (latest): 6206579687d08aae5a9742efffe61d078438187f5bc68922b39ee2ce92254968
+- [x] signed promotion receipt gate (fail without receipt, pass with trusted signature)
+- [x] trust-root enforcement (active key required, revoked key fails)
 
 ### Snap Strict Confinement Gate (Manual sudo)
 - [x] sudo snap install --dangerous ./alphabeta-sentinel_0.1.0_amd64.snap

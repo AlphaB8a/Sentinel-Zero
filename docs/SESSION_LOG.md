@@ -87,3 +87,21 @@ Session ID: 9e38606b-e2a1-4276-b5f8-9975f24b3cf3
 - Deterministic metrics adapter and canonical label routing are wired.
 - KernelKit v0.1 propose-only CLI and deterministic artifact generation are in place.
 - Alert diff logging now lives in core and is driven by `SENTINEL_OFFLINE_MS` for deterministic gate checks.
+
+## 2026-03-02 Receipt Hardening Sweep
+- Added strict cryptographic promotion receipt contracts and trust-root schema in `tools/kernelkit/src/plan.rs`.
+- Added Ed25519 verification/signing utilities in `tools/kernelkit/src/receipt.rs`.
+- Added strict fail-closed verifier path in `tools/kernelkit/src/verify.rs`:
+  - `profile verify` now validates preflight/resolved hashes + signed receipt + trust-root key status.
+  - Enforces scope: `sentinel-only-promotion`.
+  - Emits deterministic `after/verify.json` report.
+- Added `profile sign-receipt` command in `tools/kernelkit/src/main.rs` to produce:
+  - `promotion.receipt.json`
+  - matching `trust-root.json`
+- Hardened policy enforcement in `enforce_policy`:
+  - `forbid_remote_apply`
+  - `require_tty_confirm`
+  - `allowlist_only` path guard
+- Added deterministic tie-break sorting in physics process rows (CPU desc, pid/name asc) in `crates/sentinel_core/src/engine/physics.rs`.
+- Added deterministic PASS/FAIL tests for receipt verification and apply-dir verifier.
+- Added enterprise CI guard: `scripts/gates/kernelkit_receipt_gate.sh` and wired into `.github/workflows/ci.yml`.

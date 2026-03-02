@@ -187,3 +187,54 @@ pub enum RollbackStrategy {
     RestorePrevious,
     ExplicitInverse,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PromotionReceipt {
+    pub version: String,
+    pub scope: String,
+    pub payload: PromotionReceiptPayload,
+    pub signature: PromotionSignature,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PromotionReceiptPayload {
+    pub plan_id: String,
+    pub resolved_sha256: String,
+    pub preflight_sha256: String,
+    pub issued_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PromotionSignature {
+    pub algorithm: String,
+    pub key_id: String,
+    pub signature_b64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustRoot {
+    pub version: String,
+    pub scope: String,
+    pub algorithm: String,
+    pub keys: Vec<TrustRootKey>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustRootKey {
+    pub key_id: String,
+    pub public_key_b64: String,
+    pub status: TrustRootKeyStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TrustRootKeyStatus {
+    Active,
+    Revoked,
+    Retired,
+}

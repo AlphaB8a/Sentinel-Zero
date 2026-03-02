@@ -8,3 +8,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --workspace
       - run: cargo test --workspace
+      - run: ./scripts/gates/kernelkit_receipt_gate.sh

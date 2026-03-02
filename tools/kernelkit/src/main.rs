@@ -1,17 +1,25 @@
 mod normalize;
 mod plan;
+mod receipt;
+mod verify;
 
 use anyhow::{anyhow, Context, Result};
-use chrono::Local;
+use chrono::{SecondsFormat, Utc};
 use clap::{Parser, Subcommand};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
-use crate::plan::{ApplyMode, Plan as KKPlan};
+use crate::{
+    plan::{ApplyMode, Plan as KKPlan, PromotionReceiptPayload},
+    receipt::{
+        build_signed_receipt, build_trust_root_from_signing_key, sha256_hex,
+        write_receipt_template, write_trust_root_template, SENTINEL_ONLY_SCOPE,
+    },
+    verify::{verify_apply_dir, VerifyOptions},
+};
 
 #[derive(Parser)]
 #[command(name = "kernelkit", version)]
@@ -43,6 +51,23 @@ enum ProfileCmd {
     },
     Verify {
         apply_dir: String,
+        #[arg(long)]
+        receipt: Option<String>,
+        #[arg(long)]
+        trust_root: Option<String>,
+    },
+    SignReceipt {
+        apply_dir: String,
+        #[arg(long)]
+        signing_key_b64: String,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        out: Option<String>,
+        #[arg(long)]
+        trust_root_out: Option<String>,
+        #[arg(long)]
+        issued_at: Option<String>,
     },
     Rollback {
         apply_dir: String,
@@ -75,16 +100,82 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
             );
             Ok(())
         }
-        ProfileCmd::Verify { apply_dir } => {
+        ProfileCmd::Verify {
+            apply_dir,
+            receipt,
+            trust_root,
+        } => {
             let dir = PathBuf::from(apply_dir);
-            let preflight = dir.join("preflight.json");
-            if !preflight.exists() {
-                return Err(anyhow!(
-                    "verify: missing preflight.json in {}",
+            let outcome = verify_apply_dir(
+                &dir,
+                &VerifyOptions {
+                    receipt_path: receipt.map(PathBuf::from),
+                    trust_root_path: trust_root.map(PathBuf::from),
+                },
+            )?;
+            println!(
+                "KERNELKIT_VERIFY_OK dir={} plan_id={} key_id={} scope={}",
+                dir.display(),
+                outcome.plan_id,
+                outcome.key_id,
+                SENTINEL_ONLY_SCOPE
+            );
+            Ok(())
+        }
+        ProfileCmd::SignReceipt {
+            apply_dir,
+            signing_key_b64,
+            key_id,
+            out,
+            trust_root_out,
+            issued_at,
+        } => {
+            let dir = PathBuf::from(apply_dir);
+            let resolved_yaml = fs::read(dir.join("plan.resolved.yaml")).with_context(|| {
+                format!(
+                    "sign-receipt: missing plan.resolved.yaml in {}",
                     dir.display()
-                ));
-            }
-            println!("KERNELKIT_VERIFY_OK dir={}", dir.display());
+                )
+            })?;
+            let plan: KKPlan = serde_yaml::from_slice(&resolved_yaml)
+                .context("sign-receipt: parse plan.resolved.yaml")?;
+            let resolved_sha = sha256_hex(&resolved_yaml);
+            let preflight = fs::read(dir.join("preflight.json")).with_context(|| {
+                format!("sign-receipt: missing preflight.json in {}", dir.display())
+            })?;
+            let preflight_sha = sha256_hex(&preflight);
+
+            let payload = PromotionReceiptPayload {
+                plan_id: plan.plan_id,
+                resolved_sha256: resolved_sha,
+                preflight_sha256: preflight_sha,
+                issued_at: issued_at
+                    .unwrap_or_else(|| Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)),
+            };
+            let receipt = build_signed_receipt(payload, key_id.clone(), &signing_key_b64)?;
+            let out_path = out
+                .map(PathBuf::from)
+                .unwrap_or_else(|| dir.join("promotion.receipt.json"));
+            fs::write(
+                &out_path,
+                format!("{}\n", serde_json::to_string_pretty(&receipt)?),
+            )
+            .with_context(|| format!("sign-receipt: write {}", out_path.display()))?;
+            let trust_root = build_trust_root_from_signing_key(&signing_key_b64, key_id)?;
+            let trust_root_path = trust_root_out
+                .map(PathBuf::from)
+                .unwrap_or_else(|| dir.join("trust-root.json"));
+            fs::write(
+                &trust_root_path,
+                format!("{}\n", serde_json::to_string_pretty(&trust_root)?),
+            )
+            .with_context(|| format!("sign-receipt: write {}", trust_root_path.display()))?;
+            println!(
+                "KERNELKIT_SIGN_RECEIPT_OK dir={} out={} trust_root={}",
+                dir.display(),
+                out_path.display(),
+                trust_root_path.display()
+            );
             Ok(())
         }
         ProfileCmd::Rollback { apply_dir } => {
@@ -116,7 +207,7 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
 
             enforce_policy(&resolved, apply)?;
 
-            let ts = Local::now().format("%Y%m%d-%H%M%S").to_string();
+            let ts = Utc::now().format("%Y%m%d-%H%M%S").to_string();
             let out_dir = out_base.join(ts);
             fs::create_dir_all(&out_dir)
                 .with_context(|| format!("create {}", out_dir.display()))?;
@@ -124,9 +215,7 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
             let resolved_yaml = serde_yaml::to_string(&resolved)?;
             write_text(out_dir.join("plan.resolved.yaml"), &resolved_yaml)?;
 
-            let mut hasher = Sha256::new();
-            hasher.update(resolved_yaml.as_bytes());
-            let hash = hex::encode(hasher.finalize());
+            let hash = sha256_hex(resolved_yaml.as_bytes());
             write_text(out_dir.join("resolved.sha256"), &format!("{hash}\n"))?;
 
             let preflight = preflight_json(&resolved)?;
@@ -134,6 +223,8 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
                 out_dir.join("preflight.json"),
                 &serde_json::to_string_pretty(&preflight)?,
             )?;
+            let preflight_serialized = serde_json::to_string_pretty(&preflight)?;
+            let preflight_hash = sha256_hex(preflight_serialized.as_bytes());
 
             let before_dir = out_dir.join("before");
             fs::create_dir_all(&before_dir)?;
@@ -150,6 +241,17 @@ fn run_profile(cmd: ProfileCmd, out_base: PathBuf) -> Result<()> {
             let after_dir = out_dir.join("after");
             fs::create_dir_all(&after_dir)?;
             write_text(after_dir.join("verify.json"), "{}\n")?;
+
+            let payload = PromotionReceiptPayload {
+                plan_id: resolved.plan_id.clone(),
+                resolved_sha256: hash,
+                preflight_sha256: preflight_hash,
+                issued_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            };
+            write_receipt_template(&out_dir.join("promotion.receipt.template.json"), &payload)?;
+            if !out_dir.join("trust-root.json").exists() {
+                write_trust_root_template(&out_dir.join("trust-root.template.json"))?;
+            }
 
             if apply {
                 return Err(anyhow!(
@@ -181,10 +283,63 @@ fn enforce_policy(p: &KKPlan, applying: bool) -> Result<()> {
     if !applying {
         return Ok(());
     }
-    match p.policy.apply_mode {
-        ApplyMode::ProposeOnly => Err(anyhow!("policy forbids apply: apply_mode=propose_only")),
-        _ => Ok(()),
+
+    if matches!(p.policy.apply_mode, ApplyMode::ProposeOnly) {
+        return Err(anyhow!("policy forbids apply: apply_mode=propose_only"));
     }
+    if p.policy.forbid_remote_apply
+        && (std::env::var("SSH_CONNECTION").is_ok() || std::env::var("SSH_TTY").is_ok())
+    {
+        return Err(anyhow!(
+            "policy forbids apply from remote session: forbid_remote_apply=true"
+        ));
+    }
+    if p.policy.require_tty_confirm
+        && !(atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout))
+    {
+        return Err(anyhow!(
+            "policy requires interactive TTY confirm: require_tty_confirm=true"
+        ));
+    }
+    if p.policy.allowlist_only {
+        enforce_allowlist_only(p)?;
+    }
+    Ok(())
+}
+
+fn enforce_allowlist_only(p: &KKPlan) -> Result<()> {
+    const ALLOWED_PREFIXES: [&str; 4] = [
+        "/etc/kernel/cmdline.d/",
+        "/etc/sysctl.d/",
+        "/etc/systemd/system/",
+        "/etc/systemd/zram-generator.conf",
+    ];
+    for path in collect_policy_paths(p) {
+        let allowed = ALLOWED_PREFIXES
+            .iter()
+            .any(|prefix| path.starts_with(prefix));
+        if !allowed {
+            return Err(anyhow!(
+                "policy allowlist_only rejected path outside trusted prefixes: {}",
+                path
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn collect_policy_paths(p: &KKPlan) -> Vec<String> {
+    let mut out = vec![
+        p.changes.kernel_cmdline.fragment_path.clone(),
+        p.changes.sysctl.file_path.clone(),
+        p.changes.zram.config_path.clone(),
+    ];
+    for d in &p.changes.systemd.dropins {
+        out.push(format!("/etc/systemd/system/{}.d/{}", d.unit, d.name));
+    }
+    out.sort();
+    out.dedup();
+    out
 }
 
 fn preflight_json(p: &KKPlan) -> Result<serde_json::Value> {
