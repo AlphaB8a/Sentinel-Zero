@@ -11,6 +11,7 @@ use clap::{Parser, Subcommand};
 use serde_json::json;
 use std::{
     fs,
+    io::IsTerminal,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
@@ -791,7 +792,7 @@ fn enforce_policy(p: &KKPlan, applying: bool) -> Result<()> {
         ));
     }
     if p.policy.require_tty_confirm
-        && !(atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout))
+        && !(std::io::stdin().is_terminal() && std::io::stdout().is_terminal())
     {
         return Err(anyhow!(
             "policy requires interactive TTY confirm: require_tty_confirm=true"
@@ -840,7 +841,7 @@ fn collect_policy_paths(p: &KKPlan) -> Vec<String> {
 
 fn preflight_json(p: &KKPlan) -> Result<serde_json::Value> {
     let uid = unsafe { libc::geteuid() };
-    let is_tty = atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout);
+    let is_tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     let ssh = std::env::var("SSH_CONNECTION").is_ok() || std::env::var("SSH_TTY").is_ok();
 
     Ok(json!({
