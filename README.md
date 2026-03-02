@@ -32,12 +32,14 @@ Verification enforces `scope=sentinel-only-promotion`, signed payload integrity,
 ## Enterprise Hardening Surfaces
 - mTLS plugin transport mode: `tcp+tls:<addr>` / `tcps:<addr>`
   - Requires `SENTINEL_TLS_CERT_FILE`, `SENTINEL_TLS_KEY_FILE`, `SENTINEL_TLS_CA_FILE`
+  - Optional hard limit override: `SENTINEL_IPC_MAX_LINE_BYTES` (range: `1024..=1048576`, default `65536`)
 - Trust-root lifecycle operations:
   - `kernelkit profile rotate-trust-root ...`
   - `kernelkit profile audit-verify <audit_chain.ndjson>`
 - Signed provenance/SBOM attestation:
   - `kernelkit profile attest-build ...`
   - `kernelkit profile verify-attestation <build.attestation.slsa.json>`
+  - `--kms-sign-cmd` now requires an absolute executable path (no args), non-group/world-writable, and must return a 64-byte Ed25519 signature in base64.
 
 ## IPC
 Plugins connect via newline-delimited JSON (NDJSON) over a Unix socket.

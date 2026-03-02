@@ -491,9 +491,9 @@ fn resolve_signing_provider(
         let key = load_signing_key_file(&path)?;
         return Ok(SigningProvider::File(key));
     }
-    Ok(SigningProvider::KmsCommand(
+    Ok(SigningProvider::KmsCommand(validate_kms_sign_cmd(
         kms_sign_cmd.expect("kms command present"),
-    ))
+    )?))
 }
 
 fn load_signing_key_file(path: &str) -> Result<String> {
@@ -536,7 +536,56 @@ fn run_kms_sign_command(cmd: &str, key_id: &str, payload_b64: &str) -> Result<St
     if signature.is_empty() {
         return Err(anyhow!("kms sign command returned empty signature"));
     }
+    validate_signature_b64_shape(&signature)?;
     Ok(signature)
+}
+
+fn validate_kms_sign_cmd(cmd: String) -> Result<String> {
+    let cmd = cmd.trim();
+    if cmd.is_empty() {
+        return Err(anyhow!("kms sign command path is empty"));
+    }
+    if cmd.chars().any(char::is_whitespace) {
+        return Err(anyhow!(
+            "kms sign command must be an absolute executable path with no embedded arguments"
+        ));
+    }
+    let path = Path::new(cmd);
+    if !path.is_absolute() {
+        return Err(anyhow!(
+            "kms sign command must be an absolute path, got '{}'",
+            cmd
+        ));
+    }
+    let meta = fs::metadata(path).with_context(|| format!("kms sign command metadata {}", cmd))?;
+    if !meta.is_file() {
+        return Err(anyhow!("kms sign command is not a file: {}", cmd));
+    }
+    let mode = meta.permissions().mode();
+    if mode & 0o111 == 0 {
+        return Err(anyhow!("kms sign command is not executable: {}", cmd));
+    }
+    if mode & 0o022 != 0 {
+        return Err(anyhow!(
+            "kms sign command must not be writable by group/world: {} mode={:o}",
+            cmd,
+            mode & 0o777
+        ));
+    }
+    Ok(cmd.to_string())
+}
+
+fn validate_signature_b64_shape(signature: &str) -> Result<()> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(signature)
+        .context("kms sign command returned non-base64 signature")?;
+    if bytes.len() != 64 {
+        return Err(anyhow!(
+            "kms sign command must return a 64-byte ed25519 signature, got {} bytes",
+            bytes.len()
+        ));
+    }
+    Ok(())
 }
 
 fn parse_key_source(source: &str) -> Result<KeySource> {

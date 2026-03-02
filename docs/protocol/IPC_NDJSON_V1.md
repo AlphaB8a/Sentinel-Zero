@@ -30,6 +30,9 @@ A **stream transport** is required. Implementations MAY support multiple transpo
   - Max line length: 64 KiB
   - Max metrics per `PushMetrics`: 500
   - Rate limiting/backpressure per connection
+  - Current host implementation enforces max line bytes and rejects over-limit payloads with
+    `{"status":"bad_request","error":"line_too_long"}`; override via
+    `SENTINEL_IPC_MAX_LINE_BYTES` (`1024..=1048576`).
 
 ## Requests (NDJSON)
 All requests are JSON objects tagged by `type` with `payload` as the content.

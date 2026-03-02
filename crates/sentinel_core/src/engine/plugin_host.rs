@@ -10,16 +10,20 @@ use std::fs;
 use std::io::BufReader as StdBufReader;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, UnixListener};
 use tokio::sync::mpsc;
 use tokio_rustls::TlsAcceptor;
+
+const DEFAULT_IPC_MAX_LINE_BYTES: usize = 64 * 1024;
+const MAX_IPC_MAX_LINE_BYTES: usize = 1024 * 1024;
 
 /// Minimal NDJSON plugin host. Production hardening will:
 /// - bind under /run/user/$UID with 0700 dir, 0600 socket
 /// - enforce max line length and rate limits
 pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow::Result<()> {
     let listen = ListenSpec::parse(listen_spec).context("parse listen spec")?;
+    let max_line_bytes = ipc_max_line_bytes()?;
 
     match listen {
         ListenSpec::Unix(path) => {
@@ -31,7 +35,7 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
                 let (stream, _) = listener.accept().await?;
                 let tx = tx.clone();
                 tokio::spawn(async move {
-                    handle_stream(stream, tx).await;
+                    handle_stream(stream, tx, max_line_bytes).await;
                 });
             }
         }
@@ -44,7 +48,7 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
                 let (stream, _) = listener.accept().await?;
                 let tx = tx.clone();
                 tokio::spawn(async move {
-                    handle_stream(stream, tx).await;
+                    handle_stream(stream, tx, max_line_bytes).await;
                 });
             }
         }
@@ -59,8 +63,18 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
                 let tx = tx.clone();
                 let acceptor = acceptor.clone();
                 tokio::spawn(async move {
-                    if let Ok(tls_stream) = acceptor.accept(stream).await {
-                        handle_stream(tls_stream, tx).await;
+                    match acceptor.accept(stream).await {
+                        Ok(tls_stream) => {
+                            handle_stream(tls_stream, tx, max_line_bytes).await;
+                        }
+                        Err(err) => {
+                            let _ = tx
+                                .send(EngineEvent::PluginLog(format!(
+                                    "TLS handshake rejected: {}",
+                                    err
+                                )))
+                                .await;
+                        }
                     }
                 });
             }
@@ -68,15 +82,64 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
     }
 }
 
-async fn handle_stream<S>(stream: S, tx: mpsc::Sender<EngineEvent>)
+async fn handle_stream<S>(stream: S, tx: mpsc::Sender<EngineEvent>, max_line_bytes: usize)
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (reader, mut writer) = tokio::io::split(stream);
-    let mut lines = BufReader::new(reader).lines();
+    let mut reader = BufReader::new(reader);
+    let mut line_buf = Vec::with_capacity(max_line_bytes.min(4096));
 
-    while let Ok(Some(line)) = lines.next_line().await {
-        let mut value = match serde_json::from_str::<Value>(&line) {
+    loop {
+        line_buf.clear();
+        loop {
+            let mut byte = [0u8; 1];
+            let n = match reader.read(&mut byte).await {
+                Ok(n) => n,
+                Err(_) => return,
+            };
+            if n == 0 {
+                break;
+            }
+            if line_buf.len() < max_line_bytes + 1 {
+                line_buf.push(byte[0]);
+            }
+            if byte[0] == b'\n' || line_buf.len() > max_line_bytes {
+                break;
+            }
+        }
+        if line_buf.is_empty() {
+            return;
+        }
+        if line_buf.len() > max_line_bytes {
+            write_ack(
+                &mut writer,
+                Ack {
+                    status: "bad_request".into(),
+                    error: Some("line_too_long".into()),
+                    ..Default::default()
+                },
+            )
+            .await;
+            return;
+        }
+
+        let line = match std::str::from_utf8(&line_buf) {
+            Ok(line) => line.trim_end(),
+            Err(_) => {
+                write_ack(
+                    &mut writer,
+                    Ack {
+                        status: "bad_request".into(),
+                        error: Some("bad_request".into()),
+                        ..Default::default()
+                    },
+                )
+                .await;
+                continue;
+            }
+        };
+        let mut value = match serde_json::from_str::<Value>(line) {
             Ok(value) => value,
             Err(_) => {
                 write_ack(
@@ -274,4 +337,22 @@ fn load_key(path: &str) -> anyhow::Result<PrivateKeyDer<'static>> {
         .context("parse private key")?
         .ok_or_else(|| anyhow::anyhow!("no private key found in {}", path))?;
     Ok(key)
+}
+
+fn ipc_max_line_bytes() -> anyhow::Result<usize> {
+    match std::env::var("SENTINEL_IPC_MAX_LINE_BYTES") {
+        Ok(raw) => {
+            let parsed = raw
+                .parse::<usize>()
+                .with_context(|| "SENTINEL_IPC_MAX_LINE_BYTES must be an integer")?;
+            if !(1024..=MAX_IPC_MAX_LINE_BYTES).contains(&parsed) {
+                anyhow::bail!(
+                    "SENTINEL_IPC_MAX_LINE_BYTES must be in [1024, {}]",
+                    MAX_IPC_MAX_LINE_BYTES
+                );
+            }
+            Ok(parsed)
+        }
+        Err(_) => Ok(DEFAULT_IPC_MAX_LINE_BYTES),
+    }
 }
