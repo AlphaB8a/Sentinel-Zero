@@ -17,6 +17,7 @@ Status: in progress (manual gates pending)
 - [x] cargo build --release
 - [x] cargo test
 - [x] cargo clippy --all-targets -- -D warnings
+- [x] cargo audit gate (no known vulnerabilities): `./scripts/gates/cargo_audit_gate.sh`
 
 ### Sentinel Native Headless Gate
 - [x] ALERT_SET collector.offline.demo.bridge @ 2026-01-25T01:30:21.713767Z
@@ -33,6 +34,21 @@ Status: in progress (manual gates pending)
 - [x] resolved.sha256 (latest): 6206579687d08aae5a9742efffe61d078438187f5bc68922b39ee2ce92254968
 - [x] signed promotion receipt gate (fail without receipt, pass with trusted signature)
 - [x] trust-root enforcement (active key required, revoked key fails)
+
+### Flip Checklist (Sentinel Sink + Evidence Bundle)
+#### Sentinel Sink Entry
+- [ ] Verify append in sink chain: `<apply_dir>/after/promotion_audit_chain.ndjson`
+- [ ] Verify sink integrity: `cargo run -p kernelkit -- profile audit-verify <apply_dir>/after/promotion_audit_chain.ndjson`
+- [ ] Record sink pointer in release notes (path + latest `seq` + `plan_id` + `key_id`)
+
+#### Evidence Bundle Pointers
+- [ ] Verify report pointer: `<apply_dir>/after/verify.json`
+- [ ] Receipt pointer: `<apply_dir>/promotion.receipt.json`
+- [ ] Trust root pointer: `<apply_dir>/trust-root.json`
+- [ ] Build attestation pointer: `<attestation_dir>/build.attestation.slsa.json`
+- [ ] SBOM pointer: `<attestation_dir>/sbom.cargo-metadata.json`
+- [ ] Due diligence pointer: `docs/SENTINEL_ZERO_AUTHORITY_AND_DUE_DILIGENCE.md`
+- [ ] Layman summary pointer: `docs/SENTINEL_ZERO_LAYMAN_SUMMARY.md`
 
 ### Snap Strict Confinement Gate (Manual sudo)
 - [x] sudo snap install --dangerous ./alphabeta-sentinel_0.1.0_amd64.snap

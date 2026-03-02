@@ -105,3 +105,28 @@ Session ID: 9e38606b-e2a1-4276-b5f8-9975f24b3cf3
 - Added deterministic tie-break sorting in physics process rows (CPU desc, pid/name asc) in `crates/sentinel_core/src/engine/physics.rs`.
 - Added deterministic PASS/FAIL tests for receipt verification and apply-dir verifier.
 - Added enterprise CI guard: `scripts/gates/kernelkit_receipt_gate.sh` and wired into `.github/workflows/ci.yml`.
+
+## 2026-03-02 Dependabot Remediation + Flip Checklist Hardening
+- Resolved active vulnerability advisories detected by `cargo audit`:
+  - `bytes` upgraded to `1.11.1` (RUSTSEC-2026-0007 remediation path).
+  - `time` upgraded to `0.3.47` (RUSTSEC-2026-0009 remediation path).
+- Removed `atty` usage from KernelKit and switched TTY checks to stable std API:
+  - `std::io::IsTerminal` for stdin/stdout checks in `tools/kernelkit/src/main.rs`.
+  - Dropped `atty` dependency from `tools/kernelkit/Cargo.toml`.
+- Modernized TUI dependency chain to remove unsound `lru 0.12.x` path:
+  - `ratatui` -> `0.30`
+  - `crossterm` -> `0.29`
+  - `tui-textarea` -> maintained `tui-textarea-2` package (`0.10.0`)
+- Added dedicated security audit gate:
+  - New gate script `scripts/gates/cargo_audit_gate.sh`
+  - Wired into `.github/workflows/ci.yml`
+- Updated release/flip checklist:
+  - Added **Sentinel sink entry** checklist for `promotion_audit_chain.ndjson`.
+  - Added explicit **evidence bundle pointers** (verify report, receipt, trust root, attestation, SBOM, due diligence docs).
+- Integrity verification after remediation:
+  - `cargo test --workspace` PASS
+  - `cargo clippy --workspace -- -D warnings` PASS
+  - all kernelkit gates PASS
+  - `cargo audit` reports no vulnerabilities (one non-vulnerability unmaintained warning remains: `rustls-pemfile`).
+- Repository audit note:
+  - GitHub repo visibility confirmed as public (`AlphaB8a/Sentinel-Zero`, `isPrivate=false`).

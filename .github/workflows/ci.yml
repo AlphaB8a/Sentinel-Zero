@@ -8,6 +8,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --workspace
       - run: cargo test --workspace
+      - run: ./scripts/gates/cargo_audit_gate.sh
       - run: ./scripts/gates/kernelkit_receipt_gate.sh
       - run: ./scripts/gates/kernelkit_audit_chain_gate.sh
       - run: ./scripts/gates/kernelkit_attestation_gate.sh
