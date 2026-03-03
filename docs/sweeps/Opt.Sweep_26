@@ -1,8 +1,8 @@
-Sweep #: 17
+Sweep #: 26
 Changes shipped: Verification-only sweep; no additional code edits in this iteration.
 Bugs fixed: None in this iteration.
 Vulns (severity) + fix: No known vulnerabilities reported by cargo-audit gate
-Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2582 (delta_vs_prev=-12ms)
+Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2566 (delta_vs_prev=+3ms)
 Thermo output proxy + measured delta: Thermal proxy max_c=86.8 source=lm-sensors (delta_vs_prev=0.0C)
 Annotation (fail/bugs/add-ons/upgrades): FAIL=NO; BUGS=NONE_FOUND_THIS_SWEEP; ADD_ONS=KF_MIRROR_GATE+ZERO_RESIDUE_GUARD; UPGRADE=PERF_AND_THERMAL_TRACKING
 WOW upgrade (shipped/spec): Shipped - one-command continuous enterprise sweep runner with strict per-sweep logs.
@@ -18,7 +18,7 @@ Pinned System Contract:
     - reproducible build/test commands: cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh && scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "/tmp/sz_zero_residue_receipt.sweep.json"
 Findings log:
     - F1: sweep_status=PASS; deterministic gate bundle executed
-    - F2: perf_total_ms=2582; perf_delta_vs_prev=-12ms
+    - F2: perf_total_ms=2566; perf_delta_vs_prev=+3ms
     - F3: drift(lock/api/schema)=(NONE)|(NONE)|(NONE)
 Risk register (severity|likelihood|status):
     - R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior
@@ -36,11 +36,11 @@ Top 3 next-sweep priorities:
 Assumption Ledger:
     OBSERVED:
       - sweep_status=PASS
-      - started_utc=2026-03-03T17:27:14Z
-      - ended_utc=2026-03-03T17:27:23Z
-      - success_count=17
-      - current_100_streak=17
-      - best_100_streak=17
+      - started_utc=2026-03-03T17:28:35Z
+      - ended_utc=2026-03-03T17:28:43Z
+      - success_count=26
+      - current_100_streak=26
+      - best_100_streak=26
     ASSUMED:
       - Full enterprise hardening posture depends on periodic human threat-model review.
     UNKNOWN:
@@ -62,7 +62,7 @@ Command summary:
 [gate] cargo audit gate start
 [gate] cargo audit PASS (no known vulnerabilities)
 [gate] kernelkit receipt gate start
-[gate] apply dir: /tmp/tmp.1KQsKXFkTy/20260303-172717
+[gate] apply dir: /tmp/tmp.9TMST92M9Y/20260303-172838
 [gate] verify fail-closed without signed receipt: OK
 [gate] kernelkit receipt gate PASS
 [gate] kernelkit audit chain gate start
@@ -70,8 +70,8 @@ Command summary:
 [gate] kernelkit attestation gate start
 [gate] kernelkit attestation signature/scope checks PASS
 [gate] kernelkit verify perf gate start (iters=20, max_total_ms=10000)
-[gate] kernelkit verify perf PASS total_ms=2582
+[gate] kernelkit verify perf PASS total_ms=2566
 [gate] zero residue guard start
-[gate] ZERO_RESIDUE_OK receipt=/tmp/sz_zero_residue_receipt.sweep_17.json
+[gate] ZERO_RESIDUE_OK receipt=/tmp/sz_zero_residue_receipt.sweep_26.json
 [gate] zero residue guard PASS
-Log file: Opt.Sweep_17
+Log file: Opt.Sweep_26

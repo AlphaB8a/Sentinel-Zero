@@ -6,11 +6,11 @@ cd "${ROOT}"
 
 N="${1:-25}"
 if ! [[ "${N}" =~ ^[0-9]+$ ]]; then
-  echo "[enterprise-sweep][FAIL] N must be an integer (15..30)"
+  echo "[enterprise-sweep][FAIL] N must be an integer (15..50)"
   exit 1
 fi
-if (( N < 15 || N > 30 )); then
-  echo "[enterprise-sweep][FAIL] N must be in [15, 30]"
+if (( N < 15 || N > 50 )); then
+  echo "[enterprise-sweep][FAIL] N must be in [15, 50]"
   exit 1
 fi
 
@@ -21,6 +21,58 @@ success_count=0
 streak_100=0
 best_streak_100=0
 prev_perf_total_ms=""
+prev_thermal_max_c=""
+perf_values_tmp="$(mktemp)"
+thermal_values_tmp="$(mktemp)"
+trap 'rm -f "${perf_values_tmp}" "${thermal_values_tmp}"' EXIT
+
+capture_thermal_max_c() {
+  local max_temp=""
+  local source="none"
+  local sensor_values=""
+  local sys_values=""
+
+  if command -v sensors >/dev/null 2>&1; then
+    sensor_values="$(sensors 2>/dev/null | grep -Eo '\+[0-9]+(\.[0-9]+)?°C' | tr -d '+°C' || true)"
+    if [[ -n "${sensor_values}" ]]; then
+      max_temp="$(printf "%s\n" "${sensor_values}" | awk '$1>=0 && $1<=150 { if(!seen || $1>max){max=$1; seen=1} } END{if(seen) printf "%.1f", max}')"
+      if [[ -n "${max_temp}" ]]; then
+        source="lm-sensors"
+      fi
+    fi
+  fi
+
+  if [[ -z "${max_temp}" ]] && compgen -G "/sys/class/thermal/thermal_zone*/temp" >/dev/null; then
+    sys_values="$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null || true)"
+    if [[ -n "${sys_values}" ]]; then
+      max_temp="$(printf "%s\n" "${sys_values}" | awk '
+        function to_celsius(raw) {
+          if (raw > 1000000) return raw / 1000000;
+          if (raw > 1000) return raw / 1000;
+          return raw;
+        }
+        {
+          c = to_celsius($1);
+          if (c >= 0 && c <= 150) {
+            if (!seen || c > max) {
+              max = c;
+              seen = 1;
+            }
+          }
+        }
+        END { if (seen) printf "%.1f", max }')"
+      if [[ -n "${max_temp}" ]]; then
+        source="sysfs"
+      fi
+    fi
+  fi
+
+  if [[ -z "${max_temp}" ]]; then
+    echo "UNKNOWN|${source}"
+  else
+    echo "${max_temp}|${source}"
+  fi
+}
 
 run_cached_sweep() {
   local zero_residue_receipt="$1"
@@ -74,6 +126,9 @@ for i in $(seq 1 "${N}"); do
   if [[ -z "${perf_total_ms}" ]]; then
     perf_total_ms="UNKNOWN"
   fi
+  thermal_capture="$(capture_thermal_max_c)"
+  thermal_max_c="${thermal_capture%%|*}"
+  thermal_source="${thermal_capture##*|}"
   perf_delta_vs_prev="UNKNOWN"
   if [[ "${perf_total_ms}" =~ ^[0-9]+$ ]] && [[ "${prev_perf_total_ms}" =~ ^[0-9]+$ ]]; then
     delta=$((perf_total_ms - prev_perf_total_ms))
@@ -87,6 +142,15 @@ for i in $(seq 1 "${N}"); do
   fi
   if [[ "${perf_total_ms}" =~ ^[0-9]+$ ]]; then
     prev_perf_total_ms="${perf_total_ms}"
+    echo "${perf_total_ms}" >>"${perf_values_tmp}"
+  fi
+  thermal_delta_vs_prev="UNKNOWN"
+  if [[ "${thermal_max_c}" =~ ^[0-9]+(\.[0-9]+)?$ ]] && [[ "${prev_thermal_max_c}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    thermal_delta_vs_prev="$(awk -v cur="${thermal_max_c}" -v prev="${prev_thermal_max_c}" 'BEGIN { d=cur-prev; if (d>0) printf "+%.1fC", d; else if (d<0) printf "%.1fC", d; else printf "0.0C" }')"
+  fi
+  if [[ "${thermal_max_c}" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    prev_thermal_max_c="${thermal_max_c}"
+    echo "${thermal_max_c}" >>"${thermal_values_tmp}"
   fi
   gate_summary="$(grep -E '^\[gate\]|^\[sweep\]' "${tmp_out}" || true)"
 
@@ -100,14 +164,18 @@ for i in $(seq 1 "${N}"); do
     tests_line="sandbox suite PASS (tests/clippy/gates)"
     vuln_line="No known vulnerabilities reported by cargo-audit gate"
     perf_line="KernelKit verify perf gate total_ms=${perf_total_ms} (delta_vs_prev=${perf_delta_vs_prev})"
+    thermo_line="Thermal proxy max_c=${thermal_max_c} source=${thermal_source} (delta_vs_prev=${thermal_delta_vs_prev})"
     remaining="No new runtime regressions observed in this sweep"
+    annotation_line="FAIL=NO; BUGS=NONE_FOUND_THIS_SWEEP; ADD_ONS=KF_MIRROR_GATE+ZERO_RESIDUE_GUARD; UPGRADE=PERF_AND_THERMAL_TRACKING"
   else
     streak_100=0
     sweep_status="FAIL"
     tests_line="sandbox suite FAIL (see command summary below)"
     vuln_line="UNKNOWN (sweep failed before complete evidence)"
     perf_line="UNKNOWN (sweep failed before perf evidence)"
+    thermo_line="UNKNOWN (sweep failed before complete thermal evidence)"
     remaining="Investigate failing gate/test before next sweep"
+    annotation_line="FAIL=YES; BUGS=INVESTIGATE_GATE_OR_TEST_FAILURE; ADD_ONS=NONE; UPGRADE=NONE"
   fi
 
   lock_diff="$(git diff --name-only -- Cargo.lock Cargo.toml || true)"
@@ -133,6 +201,8 @@ for i in $(seq 1 "${N}"); do
     echo "Bugs fixed: None in this iteration."
     echo "Vulns (severity) + fix: ${vuln_line}"
     echo "Perf/latency work + measured delta: ${perf_line}"
+    echo "Thermo output proxy + measured delta: ${thermo_line}"
+    echo "Annotation (fail/bugs/add-ons/upgrades): ${annotation_line}"
     echo "WOW upgrade (shipped/spec): Shipped - one-command continuous enterprise sweep runner with strict per-sweep logs."
     echo "Tests added + results: ${tests_line}"
     echo "Remaining risks/TODO: ${remaining}"
@@ -194,6 +264,24 @@ done
 
 pass_rate_pct=$(( (success_count * 100) / N ))
 echo "[enterprise-sweep] completed N=${N} success=${success_count} pass_rate=${pass_rate_pct}% best_100_streak=${best_streak_100}"
+
+if [[ -s "${perf_values_tmp}" ]]; then
+  perf_count="$(awk 'END{print NR}' "${perf_values_tmp}")"
+  perf_min="$(awk 'NR==1{min=$1} $1<min{min=$1} END{print min}' "${perf_values_tmp}")"
+  perf_avg="$(awk '{sum+=$1} END{if(NR>0) printf "%.2f", sum/NR}' "${perf_values_tmp}")"
+  perf_max="$(awk 'NR==1{max=$1} $1>max{max=$1} END{print max}' "${perf_values_tmp}")"
+  echo "[enterprise-sweep] perf_total_ms_stats count=${perf_count} min=${perf_min} avg=${perf_avg} max=${perf_max}"
+fi
+
+if [[ -s "${thermal_values_tmp}" ]]; then
+  therm_count="$(awk 'END{print NR}' "${thermal_values_tmp}")"
+  therm_min="$(awk 'NR==1{min=$1} $1<min{min=$1} END{printf "%.1f", min}' "${thermal_values_tmp}")"
+  therm_avg="$(awk '{sum+=$1} END{if(NR>0) printf "%.1f", sum/NR}' "${thermal_values_tmp}")"
+  therm_max="$(awk 'NR==1{max=$1} $1>max{max=$1} END{printf "%.1f", max}' "${thermal_values_tmp}")"
+  echo "[enterprise-sweep] thermal_max_c_stats count=${therm_count} min=${therm_min} avg=${therm_avg} max=${therm_max}"
+else
+  echo "[enterprise-sweep][WARN] thermal_max_c_stats unavailable (no lm-sensors/sysfs data)"
+fi
 
 if (( best_streak_100 < 5 )); then
   echo "[enterprise-sweep][WARN] 100%-pass streak below 5 (best=${best_streak_100})"
