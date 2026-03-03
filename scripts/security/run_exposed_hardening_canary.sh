@@ -190,7 +190,7 @@ PY
 )"
 
 LISTEN_LEFT="$(ss -ltn "( sport = :${PHASE1_PORT} or sport = :${PHASE2_PORT} )" | tail -n +2 || true)"
-FW_LEFT="$(sudo iptables -S INPUT | grep -F ":${PHASE2_PORT}" || true)"
+FW_LEFT="$(sudo iptables -S | grep -E -- "(SZ_CANARY|--dport[[:space:]]+${PHASE2_PORT}([[:space:]]|$))" || true)"
 REL_PHASE1_LOG="${PHASE1_LOG#${ROOT}/}"
 REL_PHASE2_LOG="${PHASE2_LOG#${ROOT}/}"
 REL_PHASE1_JSON="${PHASE1_JSON#${ROOT}/}"
@@ -229,7 +229,7 @@ REL_PHASE2_JSON="${PHASE2_JSON#${ROOT}/}"
   else
     echo "  - none"
   fi
-  echo "- Remaining INPUT firewall rules for canary port:"
+  echo "- Remaining iptables residue for canary chain/port marker:"
   if [[ -n "${FW_LEFT}" ]]; then
     echo "  - FOUND"
     echo '```'

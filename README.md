@@ -37,6 +37,7 @@ Verification enforces `scope=sentinel-only-promotion`, signed payload integrity,
   - Unix socket parent directory permissions are checked (owner-only by default); override only for legacy setups with `SENTINEL_IPC_ALLOW_INSECURE_DIR_PERMS=1`.
   - Optional hard limit override: `SENTINEL_IPC_MAX_LINE_BYTES` (range: `1024..=1048576`, default `65536`)
   - Optional read timeout override: `SENTINEL_IPC_READ_TIMEOUT_MS` (range: `1000..=300000`, default `30000`)
+  - Optional TLS handshake timeout override: `SENTINEL_IPC_TLS_HANDSHAKE_TIMEOUT_MS` (range: `100..=60000`, default `3000`)
   - Optional per-connection message cap: `SENTINEL_IPC_MAX_MESSAGES_PER_CONN` (range: `1..=1000000`, default `10000`)
   - Optional concurrent connection cap: `SENTINEL_IPC_MAX_CONNECTIONS` (range: `1..=100000`, default `256`)
 - Trust-root lifecycle operations:
