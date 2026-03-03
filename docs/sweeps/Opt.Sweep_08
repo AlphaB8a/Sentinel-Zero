@@ -2,7 +2,7 @@ Sweep #: 8
 Changes shipped: Verification-only sweep; no additional code edits in this iteration.
 Bugs fixed: None in this iteration.
 Vulns (severity) + fix: No known vulnerabilities reported by cargo-audit gate
-Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2643 (delta_vs_prev=-8ms)
+Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2598 (delta_vs_prev=-2ms)
 WOW upgrade (shipped/spec): Shipped - one-command continuous enterprise sweep runner with strict per-sweep logs.
 Tests added + results: sandbox suite PASS (tests/clippy/gates)
 Remaining risks/TODO: No new runtime regressions observed in this sweep
@@ -16,7 +16,7 @@ Pinned System Contract:
     - reproducible build/test commands: cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh
 Findings log:
     - F1: sweep_status=PASS; deterministic gate bundle executed
-    - F2: perf_total_ms=2643; perf_delta_vs_prev=-8ms
+    - F2: perf_total_ms=2598; perf_delta_vs_prev=-2ms
     - F3: drift(lock/api/schema)=(NONE)|(NONE)|(NONE)
 Risk register (severity|likelihood|status):
     - R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior
@@ -34,8 +34,8 @@ Top 3 next-sweep priorities:
 Assumption Ledger:
     OBSERVED:
       - sweep_status=PASS
-      - started_utc=2026-03-02T21:52:35Z
-      - ended_utc=2026-03-02T21:52:42Z
+      - started_utc=2026-03-02T23:07:18Z
+      - ended_utc=2026-03-02T23:07:25Z
       - success_count=8
       - current_100_streak=8
       - best_100_streak=8
@@ -56,7 +56,7 @@ Command summary:
 [gate] cargo audit gate start
 [gate] cargo audit PASS (no known vulnerabilities)
 [gate] kernelkit receipt gate start
-[gate] apply dir: /tmp/tmp.wXt8VEMNSl/20260302-215237
+[gate] apply dir: /tmp/tmp.qfSvZz6dwj/20260302-230720
 [gate] verify fail-closed without signed receipt: OK
 [gate] kernelkit receipt gate PASS
 [gate] kernelkit audit chain gate start
@@ -64,5 +64,5 @@ Command summary:
 [gate] kernelkit attestation gate start
 [gate] kernelkit attestation signature/scope checks PASS
 [gate] kernelkit verify perf gate start (iters=20, max_total_ms=10000)
-[gate] kernelkit verify perf PASS total_ms=2643
+[gate] kernelkit verify perf PASS total_ms=2598
 Log file: Opt.Sweep_08
