@@ -33,3 +33,7 @@ release.sha256
 /.rustup/
 /.sudo_as_admin_successful
 /LT1 AI OS/
+
+# Canary raw artifacts (keep summarized evidence markdown only)
+/docs/canary/*/phase*_client.json
+/docs/canary/*/phase*_sentinel.log

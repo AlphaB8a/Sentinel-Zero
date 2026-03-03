@@ -1,0 +1,148 @@
+schema: "state.intake.contract.v1"
+contract_version: "v1"
+generated_at_utc: "2026-03-03T15:00:00Z"
+
+identity:
+  operator: "Alpha"
+  role: "chief_systems_architect"
+  mode: "execution_with_logs"
+  timezone: "America/Chicago"
+  session_id: "SESSION_2026_03_03_A"
+
+target:
+  entity: "Studio-grade AI manufacturing platform (GameDev-led, Cinema-aware)"
+  stack:
+    languages: ["python", "bash", "yaml", "json"]
+    build_system: "uv/pyproject"
+    runtime: "linux"
+    engines: ["unreal_engine"]
+    dcc_tools: ["blender", "daz", "davinci_resolve"]
+  repo_root: "/vault/STUDIO/PROJECTS/STAGING/KINETIC_FOUNDRY/Kinetic_Foundry"
+  scope:
+    focus_area: "KA↔KF provenance seam + smoke + sealing"
+    change_budget: "additive_only"
+    ip_sensitivity: "high"
+
+authority:
+  local_first: true
+  can_execute: true
+  can_merge: false
+  can_publish: false
+  allowed_actions:
+    - "propose_changes"
+    - "write_docs"
+    - "write_schemas"
+    - "write_tests"
+    - "run_local_checks"
+    - "seal_local_proof"
+    - "open_pr"
+  forbidden_actions:
+    - "merge_pr"
+    - "publish_release"
+
+lane_policy:
+  data_origin:
+    verified_origin_allowed: true
+    quarantine_allowed: true
+    export_requires_verified_origin: true
+    quarantine_use_cases:
+      - "mood_boards"
+      - "internal_prototyping_only"
+  creative_entropy:
+    allowed_zones: ["creative_generation", "style_exploration"]
+    deterministic_zones: ["validation", "provenance", "promotion", "sealing"]
+    repro_policy: "policy-defined reproducibility for generation; deterministic verification required"
+  promotion_rules:
+    fail_closed: true
+    requires_verify_report: true
+    requires_receipts: true
+    requires_trust_passport_for_shippable: true
+
+tooling:
+  local_env:
+    machine: "WS1"
+    os: "linux"
+    gpus: ["RTX 3090", "RTX 3090"]
+    constraints:
+      no_network_by_default: true
+      sandbox_available: true
+      disk_budget_gb: 2000
+      vram_gb_total: 48
+  hosted_env:
+    enabled: true
+    budget_usd: 1000
+    providers:
+      - name: "vertex_ai"
+        allowed: true
+        use_cases: ["teacher_data", "coverage", "stress_testing"]
+        quota_notes: "bounded usage; receipts required for cost tracking"
+
+evidence_policy:
+  required_artifacts:
+    - "run_manifest"
+    - "receipt_chain"
+    - "verify_report"
+  proof_depot:
+    root_path: "/vault/SYSTEM/_manifests/kf_local_proofs"
+    pointer_required: true
+    bundle_naming: "LOCAL_PROOF_<UTC>_<SHORT_SHA>"
+  sanitization:
+    public_allowed: true
+    redact_paths: true
+    redact_prompts: true
+
+inputs:
+  repo_state:
+    branch: "master"
+    commit: "557c0cb6b83ff30e2da53d2d14d8251fad415e24"
+    clean_tree: true
+    status_porcelain: ""
+    diff_stat: ""
+  artifacts:
+    known_paths:
+      - "DOCS/PROVENANCE/KA_KF_V0_1_PACKET_FILESET.txt"
+      - "DOCS/SCRIPTS/governance_dropin/check_ka_kf_provenance_packet_v0_1.py"
+    notes: "Provenance packet merged; validator wired into aggregate gate."
+  workorders:
+    paths:
+      - "DOCS/WORKORDERS/PROVENANCE/SMOKE_V1/PKT_SMOKE_01.yaml"
+      - "DOCS/WORKORDERS/PROVENANCE/SMOKE_V1/PKT_SMOKE_02.yaml"
+      - "DOCS/WORKORDERS/PROVENANCE/SMOKE_V1/PKT_SMOKE_03.yaml"
+    suite_id: "PROVENANCE_SMOKE_V1"
+  logs: []
+
+objectives:
+  primary_goal: "Execute provenance SMOKE end-to-end and seal local proof bundle (LOCAL mode)."
+  acceptance_criteria:
+    - "aggregate gate PASS with provenance enforcement enabled"
+    - "SMOKE outputs include run_manifest + verify_report + receipt chain"
+    - "proof bundle sealed and pointer emitted to proof depot"
+  constraints:
+    - "no network egress unless explicitly permitted"
+    - "no export of quarantine data"
+    - "no claims without receipts"
+
+stop_conditions:
+  hard_stop_reasons:
+    - "missing required workorder file"
+    - "schema validation failure"
+    - "verify_report status != PASS"
+    - "missing receipts required by policy"
+    - "attempted export from quarantine reservoir"
+  escalation_policy:
+    on_missing_state: "request_state"
+    on_low_confidence: "instrument"
+    on_policy_violation: "halt"
+
+research_pass:
+  enabled: true
+  query_budget: 12
+  source_rules:
+    - "peer-reviewed venues only"
+    - "official technical docs only"
+    - "no social media / SEO"
+  themes:
+    - "multimodal orchestration IR"
+    - "compression: run bigger on smaller"
+    - "deterministic creative lanes"
+    - "rights-aware provenance tooling"

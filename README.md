@@ -37,7 +37,9 @@ Verification enforces `scope=sentinel-only-promotion`, signed payload integrity,
   - Unix socket parent directory permissions are checked (owner-only by default); override only for legacy setups with `SENTINEL_IPC_ALLOW_INSECURE_DIR_PERMS=1`.
   - Optional hard limit override: `SENTINEL_IPC_MAX_LINE_BYTES` (range: `1024..=1048576`, default `65536`)
   - Optional read timeout override: `SENTINEL_IPC_READ_TIMEOUT_MS` (range: `1000..=300000`, default `30000`)
+  - Optional TLS handshake timeout override: `SENTINEL_IPC_TLS_HANDSHAKE_TIMEOUT_MS` (range: `100..=60000`, default `3000`)
   - Optional per-connection message cap: `SENTINEL_IPC_MAX_MESSAGES_PER_CONN` (range: `1..=1000000`, default `10000`)
+  - Optional concurrent connection cap: `SENTINEL_IPC_MAX_CONNECTIONS` (range: `1..=100000`, default `256`)
 - Trust-root lifecycle operations:
   - `kernelkit profile rotate-trust-root ...`
   - `kernelkit profile audit-verify <audit_chain.ndjson>`
@@ -46,6 +48,32 @@ Verification enforces `scope=sentinel-only-promotion`, signed payload integrity,
   - `kernelkit profile verify-attestation <build.attestation.slsa.json>`
   - `--kms-sign-cmd` now requires an absolute executable path (no args), non-symlink, non-group/world-writable, and must return a 64-byte Ed25519 signature in base64.
   - KMS command invocation is stdin-closed and enforces bounded payload/signature size.
+
+## Continuous Enterprise Sweeps
+One command runs repeated deterministic sweeps and writes strict logs:
+
+```bash
+# default N=25 (must be in [15, 50])
+./scripts/sweeps/run_enterprise_sweeps.sh
+
+# explicit N
+./scripts/sweeps/run_enterprise_sweeps.sh 15
+```
+
+Per-sweep logs are emitted to `docs/sweeps/Opt.Sweep_XX`.
+Sweep execution is fail-closed on intake validity via `scripts/gates/state_intake_gate.sh` and `DOCS/CONTRACTS/STATE_INTAKE_CURRENT_v1.json`.
+
+## KF Attachment (Standalone Mirror Mode)
+Sentinel remains standalone by exporting verification artifacts as a one-way mirror bundle.
+
+```bash
+./scripts/integration/kf_mirror_export.sh \
+  --apply-dir /path/to/kernelkit/apply_dir \
+  --out-dir docs/integrations/kf_mirror_exports
+```
+
+The bundle includes signed receipt, trust root, verify report, audit chain, and integrity manifest.
+See `docs/integrations/KF_ATTACHMENT_STANDALONE_MIRROR.md`.
 
 ## IPC
 Plugins connect via newline-delimited JSON (NDJSON) over a Unix socket.

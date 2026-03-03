@@ -1,0 +1,83 @@
+Sweep #: 3
+Changes shipped: Verification-only sweep; no additional code edits in this iteration.
+Bugs fixed: None in this iteration.
+Vulns (severity) + fix: No known vulnerabilities reported by cargo-audit gate
+Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2661 (delta_vs_prev=-27ms)
+Thermo output proxy + measured delta: Thermal proxy max_c=86.8 source=lm-sensors (delta_vs_prev=0.0C)
+Annotation (fail/bugs/add-ons/upgrades): FAIL=NO; BUGS=NONE_FOUND_THIS_SWEEP; ADD_ONS=KF_MIRROR_GATE+ZERO_RESIDUE_GUARD; UPGRADE=PERF_AND_THERMAL_TRACKING
+WOW upgrade (shipped/spec): Shipped - one-command continuous enterprise sweep runner with strict per-sweep logs.
+Tests added + results: sandbox suite PASS (tests/clippy/gates)
+Remaining risks/TODO: No new runtime regressions observed in this sweep
+Major-change confidence:
+    • Shipped major change: NO
+    • Evidence bundle (if YES): N/A
+    • If deferred: no major-change scope in this iteration
+Pinned System Contract:
+    - supported interfaces + behavior invariants: IPC NDJSON v1 + sentinel_protocol::IpcMessage/Ack; kernelkit profile apply/verify/sign-receipt/attest/verify-attestation; fail-closed receipt verify; signed trust-root scope=sentinel-only-promotion; bounded IPC lines/timeouts/message caps/connections
+    - versioned configs/schemas: docs/protocol/IPC_NDJSON_V1.md; tools/kernelkit plan schema kernelkit.alpha.v0.1; docs/canary/ZERO_RESIDUE_POLICY_CONTRACT_v1.md; Cargo.lock pinned
+    - reproducible build/test commands: cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh && scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "/tmp/sz_zero_residue_receipt.sweep.json"
+Findings log:
+    - F0: intake_contract_sha256=d7301e0e683f2051040c2e5aaf90164a843bc5ece5b161fd3ebe4af90682286d
+    - F1: sweep_status=PASS; deterministic gate bundle executed
+    - F2: perf_total_ms=2661; perf_delta_vs_prev=-27ms
+    - F3: drift(lock/api/schema)=(NONE)|(NONE)|(NONE)
+Risk register (severity|likelihood|status):
+    - R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior
+    - R2|Low|Low|Open|Perf gate is single-host synthetic and may not map to all hardware
+    - R3|Low|Low|Mitigated|IPC abuse paths now covered by targeted regression tests and gate
+Upgrade Radar backlog (WOW|Enterprise|Maintainability|EffortInv|Total):
+    - Continuous diagnostics dashboard|5|5|5|4|19
+    - Connection-flood soak test harness|4|5|4|4|17
+    - Policy-pack templates for deployment profiles|4|4|5|4|17
+    - Structured runbook generator from sweep logs|3|4|5|5|17
+Top 3 next-sweep priorities:
+    - P1: Extend IPC abuse suite with multi-connection saturation integration test (PROPOSED until implemented).
+    - P2: Add sweep artifact trend index (perf + gate durations) for ops visibility (PROPOSED until implemented).
+    - P3: Add license/abandonware explicit gate output parsing in logs (PROPOSED until implemented).
+Assumption Ledger:
+    OBSERVED:
+      - sweep_status=PASS
+      - started_utc=2026-03-03T18:07:13Z
+      - ended_utc=2026-03-03T18:07:22Z
+      - success_count=3
+      - current_100_streak=3
+      - best_100_streak=3
+    ASSUMED:
+      - Full enterprise hardening posture depends on periodic human threat-model review.
+    UNKNOWN:
+      - Live production behavior under real external traffic (LOCAL-only validation).
+Drift checks:
+    - dependency locks diff: NONE
+    - API surface diff (protocol/ipc docs): NONE
+    - config/schema diff: NONE
+    - determinism re-verify: cached locked sweep PASS
+Command summary:
+[gate] state intake gate start
+[gate] STATE_INTAKE_OK contract_sha256=d7301e0e683f2051040c2e5aaf90164a843bc5ece5b161fd3ebe4af90682286d
+[gate] state intake gate PASS
+[gate] state intake negative gate start
+[gate] state intake negative gate PASS
+[gate] ipc abuse gate start
+[gate] ipc abuse gate PASS
+[gate] zero-residue negative gate start
+[gate] zero-residue negative gate PASS
+[gate] kf attachment mirror gate start
+[gate] kf attachment mirror gate PASS
+[gate] secrets pattern gate start
+[gate] secrets pattern gate PASS
+[gate] cargo audit gate start
+[gate] cargo audit PASS (no known vulnerabilities)
+[gate] kernelkit receipt gate start
+[gate] apply dir: /tmp/tmp.wLv9NuU7nC/20260303-180716
+[gate] verify fail-closed without signed receipt: OK
+[gate] kernelkit receipt gate PASS
+[gate] kernelkit audit chain gate start
+[gate] kernelkit audit chain tamper detection PASS
+[gate] kernelkit attestation gate start
+[gate] kernelkit attestation signature/scope checks PASS
+[gate] kernelkit verify perf gate start (iters=20, max_total_ms=10000)
+[gate] kernelkit verify perf PASS total_ms=2661
+[gate] zero residue guard start
+[gate] ZERO_RESIDUE_OK receipt=/tmp/sz_zero_residue_receipt.sweep_03.json
+[gate] zero residue guard PASS
+Log file: Opt.Sweep_03
