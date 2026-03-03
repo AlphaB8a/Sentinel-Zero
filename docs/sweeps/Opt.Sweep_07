@@ -2,7 +2,7 @@ Sweep #: 7
 Changes shipped: Verification-only sweep; no additional code edits in this iteration.
 Bugs fixed: None in this iteration.
 Vulns (severity) + fix: No known vulnerabilities reported by cargo-audit gate
-Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2609 (delta_vs_prev=+56ms)
+Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2657 (delta_vs_prev=-24ms)
 Thermo output proxy + measured delta: Thermal proxy max_c=86.8 source=lm-sensors (delta_vs_prev=0.0C)
 Annotation (fail/bugs/add-ons/upgrades): FAIL=NO; BUGS=NONE_FOUND_THIS_SWEEP; ADD_ONS=KF_MIRROR_GATE+ZERO_RESIDUE_GUARD; UPGRADE=PERF_AND_THERMAL_TRACKING
 WOW upgrade (shipped/spec): Shipped - one-command continuous enterprise sweep runner with strict per-sweep logs.
@@ -17,8 +17,9 @@ Pinned System Contract:
     - versioned configs/schemas: docs/protocol/IPC_NDJSON_V1.md; tools/kernelkit plan schema kernelkit.alpha.v0.1; docs/canary/ZERO_RESIDUE_POLICY_CONTRACT_v1.md; Cargo.lock pinned
     - reproducible build/test commands: cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh && scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "/tmp/sz_zero_residue_receipt.sweep.json"
 Findings log:
+    - F0: intake_contract_sha256=d7301e0e683f2051040c2e5aaf90164a843bc5ece5b161fd3ebe4af90682286d
     - F1: sweep_status=PASS; deterministic gate bundle executed
-    - F2: perf_total_ms=2609; perf_delta_vs_prev=+56ms
+    - F2: perf_total_ms=2657; perf_delta_vs_prev=-24ms
     - F3: drift(lock/api/schema)=(NONE)|(NONE)|(NONE)
 Risk register (severity|likelihood|status):
     - R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior
@@ -36,8 +37,8 @@ Top 3 next-sweep priorities:
 Assumption Ledger:
     OBSERVED:
       - sweep_status=PASS
-      - started_utc=2026-03-03T17:25:45Z
-      - ended_utc=2026-03-03T17:25:54Z
+      - started_utc=2026-03-03T18:07:52Z
+      - ended_utc=2026-03-03T18:08:00Z
       - success_count=7
       - current_100_streak=7
       - best_100_streak=7
@@ -51,6 +52,11 @@ Drift checks:
     - config/schema diff: NONE
     - determinism re-verify: cached locked sweep PASS
 Command summary:
+[gate] state intake gate start
+[gate] STATE_INTAKE_OK contract_sha256=d7301e0e683f2051040c2e5aaf90164a843bc5ece5b161fd3ebe4af90682286d
+[gate] state intake gate PASS
+[gate] state intake negative gate start
+[gate] state intake negative gate PASS
 [gate] ipc abuse gate start
 [gate] ipc abuse gate PASS
 [gate] zero-residue negative gate start
@@ -62,7 +68,7 @@ Command summary:
 [gate] cargo audit gate start
 [gate] cargo audit PASS (no known vulnerabilities)
 [gate] kernelkit receipt gate start
-[gate] apply dir: /tmp/tmp.vNa2nDU47a/20260303-172548
+[gate] apply dir: /tmp/tmp.9OvSdskxWB/20260303-180755
 [gate] verify fail-closed without signed receipt: OK
 [gate] kernelkit receipt gate PASS
 [gate] kernelkit audit chain gate start
@@ -70,7 +76,7 @@ Command summary:
 [gate] kernelkit attestation gate start
 [gate] kernelkit attestation signature/scope checks PASS
 [gate] kernelkit verify perf gate start (iters=20, max_total_ms=10000)
-[gate] kernelkit verify perf PASS total_ms=2609
+[gate] kernelkit verify perf PASS total_ms=2657
 [gate] zero residue guard start
 [gate] ZERO_RESIDUE_OK receipt=/tmp/sz_zero_residue_receipt.sweep_07.json
 [gate] zero residue guard PASS
