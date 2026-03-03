@@ -313,20 +313,20 @@ iptables_state="UNKNOWN"
 nft_state="UNKNOWN"
 if [[ "${probe_mode}" == "root" || "${probe_mode}" == "sudo" ]]; then
   if command -v iptables >/dev/null 2>&1; then
-    ipt_rc="$(run_probe_capture "iptables_input" "${probe_mode}" iptables -S INPUT)"
+    ipt_rc="$(run_probe_capture "iptables_rules" "${probe_mode}" iptables -S)"
     if [[ "${ipt_rc}" -eq 0 ]]; then
       iptables_state="OK"
-      if match_fixed "${MARKER}" "${TMP_DIR}/iptables_input.out"; then
+      if match_fixed "${MARKER}" "${TMP_DIR}/iptables_rules.out"; then
         live_hit="true"
       fi
       for p in "${PORTS[@]}"; do
-        if match_regex "(^|[^0-9])${p}([^0-9]|$)" "${TMP_DIR}/iptables_input.out"; then
+        if match_regex "(^|[^0-9])${p}([^0-9]|$)" "${TMP_DIR}/iptables_rules.out"; then
           live_hit="true"
         fi
       done
     else
       iptables_state="ERROR_RC_${ipt_rc}"
-      add_unknown "iptables_input_unavailable"
+      add_unknown "iptables_rules_unavailable"
     fi
   else
     iptables_state="UNAVAILABLE"
