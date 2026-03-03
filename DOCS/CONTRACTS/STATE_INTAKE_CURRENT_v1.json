@@ -1,0 +1,151 @@
+{
+  "schema": "state.intake.contract.v1",
+  "contract_version": "v1",
+  "generated_at_utc": "2026-03-03T18:03:23Z",
+  "identity": {
+    "operator": "local-automation",
+    "role": "verification_and_provenance_lead",
+    "mode": "execution_with_logs",
+    "timezone": "UTC",
+    "session_id": "SESSION_STATE_INTAKE_CURRENT_V1"
+  },
+  "target": {
+    "entity": "Sentinel Zero governed runtime and verification platform",
+    "stack": {
+      "languages": ["rust", "bash", "python", "yaml", "json"],
+      "build_system": "cargo",
+      "runtime": "linux"
+    },
+    "repo_root": "/vault/STUDIO/PROJECTS/STAGING/SENTINEL_ZERO/Sentinel-Zero",
+    "scope": {
+      "focus_area": "state intake gate + sweep determinism",
+      "change_budget": "additive_only",
+      "ip_sensitivity": "high"
+    }
+  },
+  "authority": {
+    "local_first": true,
+    "can_execute": true,
+    "can_merge": false,
+    "can_publish": false,
+    "allowed_actions": [
+      "propose_changes",
+      "write_docs",
+      "write_schemas",
+      "write_tests",
+      "run_local_checks",
+      "seal_local_proof",
+      "open_pr"
+    ],
+    "forbidden_actions": [
+      "merge_pr",
+      "publish_release"
+    ]
+  },
+  "lane_policy": {
+    "data_origin": {
+      "verified_origin_allowed": true,
+      "quarantine_allowed": true,
+      "export_requires_verified_origin": true,
+      "quarantine_use_cases": ["internal_exploration"]
+    },
+    "creative_entropy": {
+      "allowed_zones": ["creative_generation", "style_exploration"],
+      "deterministic_zones": ["validation", "provenance", "promotion", "sealing"],
+      "repro_policy": "deterministic verification required; stochastic generation only in declared creative zones"
+    },
+    "promotion_rules": {
+      "fail_closed": true,
+      "requires_verify_report": true,
+      "requires_receipts": true,
+      "requires_trust_passport_for_shippable": true
+    }
+  },
+  "tooling": {
+    "local_env": {
+      "machine": "local-linux",
+      "os": "linux",
+      "gpus": [],
+      "constraints": {
+        "no_network_by_default": false,
+        "sandbox_available": true,
+        "disk_budget_gb": 1000,
+        "vram_gb_total": 0
+      }
+    },
+    "hosted_env": {
+      "enabled": false,
+      "budget_usd": 0,
+      "providers": []
+    }
+  },
+  "evidence_policy": {
+    "required_artifacts": ["run_manifest", "receipt_chain", "verify_report"],
+    "proof_depot": {
+      "root_path": "docs/sweeps",
+      "pointer_required": true,
+      "bundle_naming": "LOCAL_PROOF_<UTC>_<SHORT_SHA>"
+    },
+    "sanitization": {
+      "public_allowed": true,
+      "redact_paths": false,
+      "redact_prompts": true
+    }
+  },
+  "inputs": {
+    "repo_state": {
+      "branch": "feat/enterprise-sweep-ipc-hardening-wow",
+      "commit": "3cb84591ba0ddbd57422fccc94f5975d37d6f6ea",
+      "clean_tree": false,
+      "status_porcelain": "managed by runtime",
+      "diff_stat": "managed by runtime"
+    },
+    "artifacts": {
+      "known_paths": [
+        "docs/protocol/IPC_NDJSON_V1.md",
+        "docs/canary/ZERO_RESIDUE_POLICY_CONTRACT_v1.md",
+        "CONTRACTS/schemas/state_intake_contract_v1.schema.json"
+      ],
+      "notes": "state intake checks run before sweep and CI gate bundles"
+    },
+    "workorders": {
+      "paths": [
+        "docs/kernelkit/examples/nomad.v0.1.yaml"
+      ],
+      "suite_id": "STATE_INTAKE_V1"
+    },
+    "logs": []
+  },
+  "objectives": {
+    "primary_goal": "Fail-closed intake validation before any sweep or gate bundle execution.",
+    "acceptance_criteria": [
+      "state intake gate PASS before sweep",
+      "state intake negative gate PASS",
+      "sweep logs include intake contract hash"
+    ],
+    "constraints": [
+      "no claims without logs",
+      "no export from quarantine",
+      "deterministic fail-closed validation"
+    ]
+  },
+  "stop_conditions": {
+    "hard_stop_reasons": [
+      "missing required field in contract",
+      "schema validation failure",
+      "missing referenced files",
+      "missing policy/evidence sections"
+    ],
+    "escalation_policy": {
+      "on_missing_state": "request_state",
+      "on_low_confidence": "instrument",
+      "on_policy_violation": "halt"
+    }
+  },
+  "research_pass": {
+    "enabled": true,
+    "query_budget": 8,
+    "source_rules": ["official technical docs", "primary technical sources"],
+    "themes": ["orchestration IR", "deterministic verification", "provenance tooling"]
+  }
+}

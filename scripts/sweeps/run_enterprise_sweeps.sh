@@ -76,6 +76,8 @@ capture_thermal_max_c() {
 
 run_cached_sweep() {
   local zero_residue_receipt="$1"
+  ./scripts/gates/state_intake_gate.sh
+  ./scripts/gates/state_intake_negative_gate.sh
   cargo test --workspace --locked
   cargo clippy --workspace -- -D warnings
   ./scripts/gates/ipc_abuse_gate.sh
@@ -153,6 +155,10 @@ for i in $(seq 1 "${N}"); do
     echo "${thermal_max_c}" >>"${thermal_values_tmp}"
   fi
   gate_summary="$(grep -E '^\[gate\]|^\[sweep\]' "${tmp_out}" || true)"
+  intake_contract_sha="$(grep -Eo 'STATE_INTAKE_OK contract_sha256=[0-9a-f]+' "${tmp_out}" | tail -n 1 | awk -F= '{print $2}' || true)"
+  if [[ -z "${intake_contract_sha}" ]]; then
+    intake_contract_sha="UNKNOWN"
+  fi
 
   if [[ "${sweep_rc}" -eq 0 ]]; then
     success_count=$((success_count + 1))
@@ -215,6 +221,7 @@ for i in $(seq 1 "${N}"); do
     echo "    - versioned configs/schemas: ${contract_versions}"
     echo "    - reproducible build/test commands: ${contract_repro}"
     echo "Findings log:"
+    echo "    - F0: intake_contract_sha256=${intake_contract_sha}"
     echo "    - F1: sweep_status=${sweep_status}; deterministic gate bundle executed"
     echo "    - F2: perf_total_ms=${perf_total_ms}; perf_delta_vs_prev=${perf_delta_vs_prev}"
     echo "    - F3: drift(lock/api/schema)=(${lock_diff:-NONE})|(${api_diff:-NONE})|(${schema_diff:-NONE})"

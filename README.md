@@ -53,7 +53,7 @@ Verification enforces `scope=sentinel-only-promotion`, signed payload integrity,
 One command runs repeated deterministic sweeps and writes strict logs:
 
 ```bash
-# default N=25 (must be in [15, 30])
+# default N=25 (must be in [15, 50])
 ./scripts/sweeps/run_enterprise_sweeps.sh
 
 # explicit N
@@ -61,6 +61,7 @@ One command runs repeated deterministic sweeps and writes strict logs:
 ```
 
 Per-sweep logs are emitted to `docs/sweeps/Opt.Sweep_XX`.
+Sweep execution is fail-closed on intake validity via `scripts/gates/state_intake_gate.sh` and `DOCS/CONTRACTS/STATE_INTAKE_CURRENT_v1.json`.
 
 ## KF Attachment (Standalone Mirror Mode)
 Sentinel remains standalone by exporting verification artifacts as a one-way mirror bundle.

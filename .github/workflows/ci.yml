@@ -6,6 +6,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - run: ./scripts/gates/state_intake_gate.sh
+      - run: ./scripts/gates/state_intake_negative_gate.sh
       - run: cargo build --workspace
       - run: cargo test --workspace
       - run: cargo clippy --workspace -- -D warnings
