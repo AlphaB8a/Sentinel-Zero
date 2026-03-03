@@ -8,3 +8,4 @@
 ## Notes
 - Sweep logs are append-only evidence snapshots per run.
 - Operational residue assertions are enforced by `scripts/security/assert_zero_residue.sh`.
+- Fail-closed residue detection is continuously validated by `scripts/gates/zero_residue_negative_gate.sh`.

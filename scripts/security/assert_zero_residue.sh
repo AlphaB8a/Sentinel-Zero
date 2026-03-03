@@ -8,13 +8,15 @@ PORTS_CSV="${PORTS_CSV:-17777,17778}"
 MARKER="${MARKER:-SZ_CANARY}"
 FAIL_ON_UNKNOWN="${FAIL_ON_UNKNOWN:-0}"
 RECEIPT_PATH="${RECEIPT_PATH:-${ROOT}/docs/canary/zero_residue_receipt.json}"
+PERSISTENCE_FILES_SPEC="${ZERO_RESIDUE_PERSISTENCE_FILES:-}"
 
-PERSISTENCE_FILES=(
+DEFAULT_PERSISTENCE_FILES=(
   "/etc/iptables/rules.v4"
   "/etc/iptables/rules.v6"
   "/etc/sysconfig/iptables"
   "/etc/nftables.conf"
 )
+PERSISTENCE_FILES=("${DEFAULT_PERSISTENCE_FILES[@]}")
 
 usage() {
   cat <<'EOF'
@@ -25,6 +27,8 @@ Options:
   --ports <csv>           Ports to check (default: 17777,17778).
   --marker <name>         Firewall marker/chain token (default: SZ_CANARY).
   --receipt-path <path>   Write JSON receipt to this path.
+  --persistence-files <paths>
+                          Colon-separated list of persistence files to inspect.
   --fail-on-unknown       Exit non-zero when UNKNOWN checks are present.
   -h, --help              Show this help.
 EOF
@@ -71,6 +75,14 @@ while (($# > 0)); do
       fi
       RECEIPT_PATH="$1"
       ;;
+    --persistence-files)
+      shift
+      if (($# == 0)); then
+        echo "[zero-residue][FAIL] --persistence-files requires a value"
+        exit 2
+      fi
+      PERSISTENCE_FILES_SPEC="$1"
+      ;;
     --fail-on-unknown)
       FAIL_ON_UNKNOWN=1
       ;;
@@ -114,6 +126,20 @@ for i in "${!PORTS[@]}"; do
   fi
   PORTS[$i]="${p}"
 done
+
+if [[ -n "${PERSISTENCE_FILES_SPEC}" ]]; then
+  IFS=':' read -r -a raw_paths <<< "${PERSISTENCE_FILES_SPEC}"
+  PERSISTENCE_FILES=()
+  for path in "${raw_paths[@]}"; do
+    if [[ -n "${path}" ]]; then
+      PERSISTENCE_FILES+=("${path}")
+    fi
+  done
+fi
+if [[ "${#PERSISTENCE_FILES[@]}" -eq 0 ]]; then
+  echo "[zero-residue][FAIL] no persistence files configured"
+  exit 2
+fi
 
 listeners_found=()
 errors=()

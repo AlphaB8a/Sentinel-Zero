@@ -52,3 +52,4 @@ Root (preferred for full closure):
 
 ## CI Requirement
 CI must run the zero-residue assertion in strict mode and publish the receipt artifact.
+CI must also run `scripts/gates/zero_residue_negative_gate.sh` to prove fail-closed behavior when persistence residue is present.

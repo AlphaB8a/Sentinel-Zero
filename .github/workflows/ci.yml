@@ -10,6 +10,7 @@ jobs:
       - run: cargo test --workspace
       - run: cargo clippy --workspace -- -D warnings
       - run: ./scripts/gates/ipc_abuse_gate.sh
+      - run: ./scripts/gates/zero_residue_negative_gate.sh
       - run: ./scripts/gates/secrets_pattern_gate.sh
       - run: ./scripts/gates/cargo_audit_gate.sh
       - run: ./scripts/gates/kernelkit_receipt_gate.sh
