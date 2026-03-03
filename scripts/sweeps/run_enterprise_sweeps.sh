@@ -95,7 +95,7 @@ for i in $(seq 1 "${N}"); do
   schema_diff="$(git diff --name-only -- docs/kernelkit/examples tools/kernelkit/src/plan.rs || true)"
   contract_interfaces="IPC NDJSON v1 + sentinel_protocol::IpcMessage/Ack; kernelkit profile apply/verify/sign-receipt/attest/verify-attestation"
   contract_invariants="fail-closed receipt verify; signed trust-root scope=sentinel-only-promotion; bounded IPC lines/timeouts/message caps/connections"
-  contract_versions="docs/protocol/IPC_NDJSON_V1.md; tools/kernelkit plan schema kernelkit.alpha.v0.1; Cargo.lock pinned"
+  contract_versions="docs/protocol/IPC_NDJSON_V1.md; tools/kernelkit plan schema kernelkit.alpha.v0.1; docs/security/ZERO_RESIDUE_POLICY.md; Cargo.lock pinned"
   contract_repro="cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh"
 
   risk_item_1="R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior"

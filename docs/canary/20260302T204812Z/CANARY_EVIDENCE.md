@@ -4,6 +4,7 @@
 - Phase 1: sandbox hostile-traffic simulation on loopback
 - Phase 2: short-lived non-loopback canary with strict iptables rate-limit
 - Phase 3: rollback validation + evidence
+- Zero-residue policy contract: [ZERO_RESIDUE_POLICY.md](../../security/ZERO_RESIDUE_POLICY.md)
 
 ## Target + Safety
 - Service: `sentinel_tui --headless` over NDJSON TCP

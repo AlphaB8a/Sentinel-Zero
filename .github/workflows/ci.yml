@@ -16,3 +16,5 @@ jobs:
       - run: ./scripts/gates/kernelkit_audit_chain_gate.sh
       - run: ./scripts/gates/kernelkit_attestation_gate.sh
       - run: ./scripts/gates/kernelkit_verify_perf_gate.sh
+      - run: chmod +x ./scripts/security/assert_zero_residue.sh
+      - run: ./scripts/security/assert_zero_residue.sh --receipt-path /tmp/sz_zero_residue_receipt.json --fail-on-unknown
