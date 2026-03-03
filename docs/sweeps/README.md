@@ -3,7 +3,7 @@
 `docs/sweeps/Opt.Sweep_XX` files are generated evidence logs from `scripts/sweeps/run_enterprise_sweeps.sh`.
 
 ## Policy Contract Link
-- Zero-residue policy contract: [ZERO_RESIDUE_POLICY.md](../security/ZERO_RESIDUE_POLICY.md)
+- Zero-residue policy contract: [ZERO_RESIDUE_POLICY_CONTRACT_v1.md](../canary/ZERO_RESIDUE_POLICY_CONTRACT_v1.md)
 
 ## Notes
 - Sweep logs are append-only evidence snapshots per run.

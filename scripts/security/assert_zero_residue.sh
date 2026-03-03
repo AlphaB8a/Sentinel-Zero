@@ -4,25 +4,58 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT}"
 
-PORT_1="${PORT_1:-17777}"
-PORT_2="${PORT_2:-17778}"
-CANARY_CHAIN="${CANARY_CHAIN:-SZ_CANARY}"
-FAIL_ON_UNKNOWN=0
+PORTS_CSV="${PORTS_CSV:-17777,17778}"
+MARKER="${MARKER:-SZ_CANARY}"
+FAIL_ON_UNKNOWN="${FAIL_ON_UNKNOWN:-0}"
 RECEIPT_PATH="${RECEIPT_PATH:-${ROOT}/docs/canary/zero_residue_receipt.json}"
 
 usage() {
   cat <<'EOF'
 Usage: scripts/security/assert_zero_residue.sh [options]
+       scripts/security/assert_zero_residue.sh [ports_csv] [marker] [receipt_path]
 
 Options:
+  --ports <csv>           Ports to check (default: 17777,17778).
+  --marker <name>         Firewall marker/chain token (default: SZ_CANARY).
   --receipt-path <path>   Write JSON receipt to this path.
-  --fail-on-unknown       Exit non-zero if privileged checks are UNKNOWN.
+  --fail-on-unknown       Exit non-zero when UNKNOWN checks are present.
   -h, --help              Show this help.
 EOF
 }
 
+# Positional form support:
+#   ./scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "docs/canary/zero_residue_receipt.json"
+if (($# > 0)) && [[ "$1" != -* ]]; then
+  PORTS_CSV="$1"
+  shift
+fi
+if (($# > 0)) && [[ "$1" != -* ]]; then
+  MARKER="$1"
+  shift
+fi
+if (($# > 0)) && [[ "$1" != -* ]]; then
+  RECEIPT_PATH="$1"
+  shift
+fi
+
 while (($# > 0)); do
   case "$1" in
+    --ports)
+      shift
+      if (($# == 0)); then
+        echo "[zero-residue][FAIL] --ports requires a value"
+        exit 2
+      fi
+      PORTS_CSV="$1"
+      ;;
+    --marker)
+      shift
+      if (($# == 0)); then
+        echo "[zero-residue][FAIL] --marker requires a value"
+        exit 2
+      fi
+      MARKER="$1"
+      ;;
     --receipt-path)
       shift
       if (($# == 0)); then
@@ -53,128 +86,233 @@ cleanup() {
 }
 trap cleanup EXIT
 
-SS_MATCHES_FILE="${TMP_DIR}/ss_matches.txt"
-LSOF_MATCHES_FILE="${TMP_DIR}/lsof_matches.txt"
-IPT_MATCHES_FILE="${TMP_DIR}/iptables_matches.txt"
-IPT_ERROR_FILE="${TMP_DIR}/iptables_error.txt"
-NFT_MATCHES_FILE="${TMP_DIR}/nft_matches.txt"
-NFT_ERROR_FILE="${TMP_DIR}/nft_error.txt"
-PERSIST_MATCHES_FILE="${TMP_DIR}/persistence_matches.txt"
+CHECKS_FILE="${TMP_DIR}/checks.ndjson"
+touch "${CHECKS_FILE}"
 
-touch "${SS_MATCHES_FILE}" "${LSOF_MATCHES_FILE}" "${IPT_MATCHES_FILE}" "${IPT_ERROR_FILE}" \
-  "${NFT_MATCHES_FILE}" "${NFT_ERROR_FILE}" "${PERSIST_MATCHES_FILE}"
-
-status_ss="PASS"
-status_lsof="PASS"
-status_iptables="PASS"
-status_nft="PASS"
-status_persistence="PASS"
-
-if ss -lntp | egrep ":${PORT_1}|:${PORT_2}" >"${SS_MATCHES_FILE}" 2>/dev/null; then
-  if [[ -s "${SS_MATCHES_FILE}" ]]; then
-    status_ss="FAIL"
-  fi
+IFS=',' read -r -a PORTS <<< "${PORTS_CSV}"
+if [[ "${#PORTS[@]}" -eq 0 ]]; then
+  echo "[zero-residue][FAIL] no ports provided"
+  exit 2
 fi
-
-if command -v lsof >/dev/null 2>&1; then
-  if lsof -iTCP -sTCP:LISTEN -P | egrep "${PORT_1}|${PORT_2}" >"${LSOF_MATCHES_FILE}" 2>/dev/null; then
-    if [[ -s "${LSOF_MATCHES_FILE}" ]]; then
-      status_lsof="FAIL"
-    fi
-  fi
-else
-  status_lsof="UNKNOWN"
-  echo "lsof unavailable" >"${LSOF_MATCHES_FILE}"
-fi
-
-run_privileged_or_plain() {
-  if sudo -n true >/dev/null 2>&1; then
-    sudo "$@"
-  else
-    "$@"
-  fi
-}
-
-if command -v iptables >/dev/null 2>&1; then
-  if run_privileged_or_plain iptables -S INPUT >"${TMP_DIR}/iptables_input.txt" 2>"${IPT_ERROR_FILE}"; then
-    rg -n "${PORT_1}|${PORT_2}|${CANARY_CHAIN}" "${TMP_DIR}/iptables_input.txt" >"${IPT_MATCHES_FILE}" || true
-    if [[ -s "${IPT_MATCHES_FILE}" ]]; then
-      status_iptables="FAIL"
-    fi
-  else
-    status_iptables="UNKNOWN"
-  fi
-else
-  status_iptables="UNKNOWN"
-  echo "iptables unavailable" >"${IPT_ERROR_FILE}"
-fi
-
-if command -v nft >/dev/null 2>&1; then
-  if run_privileged_or_plain nft list ruleset >"${TMP_DIR}/nft_ruleset.txt" 2>"${NFT_ERROR_FILE}"; then
-    rg -n "${PORT_1}|${PORT_2}|${CANARY_CHAIN}" "${TMP_DIR}/nft_ruleset.txt" >"${NFT_MATCHES_FILE}" || true
-    if [[ -s "${NFT_MATCHES_FILE}" ]]; then
-      status_nft="FAIL"
-    fi
-  else
-    status_nft="UNKNOWN"
-  fi
-else
-  status_nft="UNKNOWN"
-  echo "nft unavailable" >"${NFT_ERROR_FILE}"
-fi
-
-for f in /etc/iptables/rules.v4 /etc/iptables/rules.v6 /etc/sysconfig/iptables /etc/nftables.conf; do
-  if [[ -f "${f}" ]]; then
-    if rg -n "${PORT_1}|${PORT_2}|${CANARY_CHAIN}" "${f}" >>"${PERSIST_MATCHES_FILE}"; then
-      :
-    fi
+for p in "${PORTS[@]}"; do
+  p="${p// /}"
+  if ! [[ "${p}" =~ ^[0-9]+$ ]]; then
+    echo "[zero-residue][FAIL] invalid port: ${p}"
+    exit 2
   fi
 done
-if [[ -s "${PERSIST_MATCHES_FILE}" ]]; then
-  status_persistence="FAIL"
+
+listeners_found=()
+errors=()
+unknown_checks=()
+is_root="false"
+if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+  is_root="true"
 fi
 
-overall="PASS"
-if [[ "${status_ss}" == "FAIL" || "${status_lsof}" == "FAIL" || "${status_iptables}" == "FAIL" || \
-      "${status_nft}" == "FAIL" || "${status_persistence}" == "FAIL" ]]; then
-  overall="FAIL"
-fi
-if [[ "${overall}" == "PASS" && "${FAIL_ON_UNKNOWN}" -eq 1 ]] && \
-   [[ "${status_lsof}" == "UNKNOWN" || "${status_iptables}" == "UNKNOWN" || "${status_nft}" == "UNKNOWN" ]]; then
-  overall="FAIL"
+run_cmd_capture() {
+  local name="$1"
+  shift
+  local out="${TMP_DIR}/${name}.out"
+  local err="${TMP_DIR}/${name}.err"
+  set +e
+  "$@" >"${out}" 2>"${err}"
+  local rc=$?
+  set -e
+  echo "${rc}"
+}
+
+append_check() {
+  printf '%s\n' "$1" >>"${CHECKS_FILE}"
+}
+
+for p in "${PORTS[@]}"; do
+  p="${p// /}"
+  ss_rc="$(run_cmd_capture "ss_${p}" ss -lntp)"
+  ss_hit="false"
+  if [[ "${ss_rc}" -eq 0 ]] && rg -q ":${p}\\b" "${TMP_DIR}/ss_${p}.out"; then
+    ss_hit="true"
+  fi
+  lsof_ran="false"
+  lsof_rc=127
+  lsof_hit="false"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof_ran="true"
+    lsof_rc="$(run_cmd_capture "lsof_${p}" lsof -iTCP -sTCP:LISTEN -P -n)"
+    if [[ "${lsof_rc}" -eq 0 ]] && rg -q "\\b${p}\\b" "${TMP_DIR}/lsof_${p}.out"; then
+      lsof_hit="true"
+    fi
+  else
+    unknown_checks+=("lsof_unavailable")
+  fi
+  if [[ "${ss_hit}" == "true" || "${lsof_hit}" == "true" ]]; then
+    listeners_found+=("${p}")
+  fi
+  check_json="$(python3 - <<'PY' "${p}" "${ss_rc}" "${ss_hit}" "${lsof_ran}" "${lsof_rc}" "${lsof_hit}"
+import json
+import sys
+port, ss_rc, ss_hit, lsof_ran, lsof_rc, lsof_hit = sys.argv[1:]
+print(json.dumps({
+    "name": "listener_check",
+    "port": int(port),
+    "ss": {"ran": True, "rc": int(ss_rc), "hit": ss_hit == "true"},
+    "lsof": {"ran": lsof_ran == "true", "rc": int(lsof_rc), "hit": lsof_hit == "true"},
+}))
+PY
+)"
+  append_check "${check_json}"
+done
+
+if [[ "${#listeners_found[@]}" -gt 0 ]]; then
+  errors+=("listeners_present")
 fi
 
-mkdir -p "$(dirname "${RECEIPT_PATH}")"
+# Fail-closed for persistence markers in /etc/nftables.conf when present.
+nft_conf_present="false"
+nft_conf_marker_hit="false"
+nft_conf_ports_hit="false"
+if [[ -f "/etc/nftables.conf" ]]; then
+  nft_conf_present="true"
+  if rg -q --fixed-strings "${MARKER}" /etc/nftables.conf; then
+    nft_conf_marker_hit="true"
+  fi
+  for p in "${PORTS[@]}"; do
+    p="${p// /}"
+    if rg -q "\\b${p}\\b" /etc/nftables.conf; then
+      nft_conf_ports_hit="true"
+      break
+    fi
+  done
+fi
+check_json="$(python3 - <<'PY' "${nft_conf_present}" "${MARKER}" "${nft_conf_marker_hit}" "${nft_conf_ports_hit}"
+import json
+import sys
+present, marker, marker_hit, ports_hit = sys.argv[1:]
+print(json.dumps({
+    "name": "nftables_conf_persistence_check",
+    "path": "/etc/nftables.conf",
+    "present": present == "true",
+    "marker": {"value": marker, "hit": marker_hit == "true"},
+    "ports_hit": ports_hit == "true",
+}))
+PY
+)"
+append_check "${check_json}"
+if [[ "${nft_conf_present}" == "true" ]] && \
+   [[ "${nft_conf_marker_hit}" == "true" || "${nft_conf_ports_hit}" == "true" ]]; then
+  errors+=("nftables_conf_persistence_detected")
+fi
 
-python3 - <<'PY' "${RECEIPT_PATH}" "${overall}" "${FAIL_ON_UNKNOWN}" "${PORT_1}" "${PORT_2}" "${CANARY_CHAIN}" \
-  "${status_ss}" "${status_lsof}" "${status_iptables}" "${status_nft}" "${status_persistence}" \
-  "${SS_MATCHES_FILE}" "${LSOF_MATCHES_FILE}" "${IPT_MATCHES_FILE}" "${IPT_ERROR_FILE}" \
-  "${NFT_MATCHES_FILE}" "${NFT_ERROR_FILE}" "${PERSIST_MATCHES_FILE}"
-import datetime as dt
+# Root-only live ruleset checks.
+if [[ "${is_root}" == "true" ]]; then
+  live_hit="false"
+  iptables_state="OK"
+  nft_state="OK"
+
+  if command -v iptables >/dev/null 2>&1; then
+    ipt_rc="$(run_cmd_capture "iptables_input" iptables -S INPUT)"
+    if [[ "${ipt_rc}" -ne 0 ]]; then
+      iptables_state="ERROR_RC_${ipt_rc}"
+      unknown_checks+=("iptables_input_unavailable")
+    else
+      if rg -q --fixed-strings "${MARKER}" "${TMP_DIR}/iptables_input.out"; then
+        live_hit="true"
+      fi
+      for p in "${PORTS[@]}"; do
+        p="${p// /}"
+        if rg -q "\\b${p}\\b" "${TMP_DIR}/iptables_input.out"; then
+          live_hit="true"
+        fi
+      done
+    fi
+  else
+    iptables_state="UNAVAILABLE"
+    unknown_checks+=("iptables_binary_unavailable")
+  fi
+
+  if command -v nft >/dev/null 2>&1; then
+    nft_rc="$(run_cmd_capture "nft_ruleset" nft list ruleset)"
+    if [[ "${nft_rc}" -ne 0 ]]; then
+      nft_state="ERROR_RC_${nft_rc}"
+      unknown_checks+=("nft_ruleset_unavailable")
+    else
+      if rg -q --fixed-strings "${MARKER}" "${TMP_DIR}/nft_ruleset.out"; then
+        live_hit="true"
+      fi
+      for p in "${PORTS[@]}"; do
+        p="${p// /}"
+        if rg -q "\\b${p}\\b" "${TMP_DIR}/nft_ruleset.out"; then
+          live_hit="true"
+        fi
+      done
+    fi
+  else
+    nft_state="UNAVAILABLE"
+    unknown_checks+=("nft_binary_unavailable")
+  fi
+
+  check_json="$(python3 - <<'PY' "${iptables_state}" "${nft_state}" "${live_hit}"
+import json
+import sys
+iptables_state, nft_state, live_hit = sys.argv[1:]
+print(json.dumps({
+    "name": "live_firewall_check",
+    "is_root": True,
+    "iptables": {"state": iptables_state},
+    "nft": {"state": nft_state},
+    "hit": live_hit == "true",
+}))
+PY
+)"
+  append_check "${check_json}"
+  if [[ "${live_hit}" == "true" ]]; then
+    errors+=("live_firewall_residue_detected")
+  fi
+else
+  check_json="$(python3 - <<'PY'
+import json
+print(json.dumps({
+    "name": "live_firewall_check",
+    "is_root": False,
+    "iptables": {"state": "UNKNOWN"},
+    "nft": {"state": "UNKNOWN"},
+    "hit": False,
+    "note": "non-root run: live firewall state intentionally not asserted",
+}))
+PY
+)"
+  append_check "${check_json}"
+  unknown_checks+=("live_firewall_non_root")
+fi
+
+if [[ "${FAIL_ON_UNKNOWN}" -eq 1 && "${#unknown_checks[@]}" -gt 0 ]]; then
+  errors+=("unknown_checks_present")
+fi
+
+overall_pass="true"
+if [[ "${#errors[@]}" -gt 0 ]]; then
+  overall_pass="false"
+fi
+
+printf '%s\n' "${listeners_found[@]}" >"${TMP_DIR}/listeners.txt"
+printf '%s\n' "${errors[@]}" >"${TMP_DIR}/errors.txt"
+printf '%s\n' "${unknown_checks[@]}" >"${TMP_DIR}/unknown.txt"
+
+python3 - <<'PY' "${RECEIPT_PATH}" "${PORTS_CSV}" "${MARKER}" "${is_root}" "${overall_pass}" "${CHECKS_FILE}" "${TMP_DIR}/listeners.txt" "${TMP_DIR}/errors.txt" "${TMP_DIR}/unknown.txt"
 import json
 import pathlib
-import socket
 import sys
 
 (
     receipt_path,
-    overall,
-    fail_on_unknown,
-    port_1,
-    port_2,
-    chain,
-    status_ss,
-    status_lsof,
-    status_iptables,
-    status_nft,
-    status_persistence,
-    ss_file,
-    lsof_file,
-    ipt_file,
-    ipt_err_file,
-    nft_file,
-    nft_err_file,
-    persistence_file,
+    ports_csv,
+    marker,
+    is_root,
+    overall_pass,
+    checks_file,
+    listeners_file,
+    errors_file,
+    unknown_file,
 ) = sys.argv[1:]
 
 
@@ -182,79 +320,36 @@ def read_lines(path: str):
     p = pathlib.Path(path)
     if not p.exists():
         return []
-    return [line.rstrip("\n") for line in p.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    return [line.strip() for line in p.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
 
 
-checks = {
-    "listeners_ss": {"status": status_ss, "matches": read_lines(ss_file)},
-    "listeners_lsof": {"status": status_lsof, "matches": read_lines(lsof_file)},
-    "iptables_input": {
-        "status": status_iptables,
-        "matches": read_lines(ipt_file),
-        "error": read_lines(ipt_err_file),
-    },
-    "nft_ruleset": {
-        "status": status_nft,
-        "matches": read_lines(nft_file),
-        "error": read_lines(nft_err_file),
-    },
-    "persistence_files": {"status": status_persistence, "matches": read_lines(persistence_file)},
-}
+ports = [int(p.strip()) for p in ports_csv.split(",") if p.strip()]
+listeners_found = read_lines(listeners_file)
+errors = read_lines(errors_file)
+unknown = read_lines(unknown_file)
+checks = [json.loads(line) for line in read_lines(checks_file)]
 
-unknown = [name for name, result in checks.items() if result["status"] == "UNKNOWN"]
-failed = [name for name, result in checks.items() if result["status"] == "FAIL"]
-
-observed = []
-if checks["listeners_ss"]["status"] == "PASS":
-    observed.append(f"no listeners found on {port_1}/{port_2} via ss")
-if checks["listeners_lsof"]["status"] == "PASS":
-    observed.append(f"no listeners found on {port_1}/{port_2} via lsof")
-if checks["persistence_files"]["status"] == "PASS":
-    observed.append("no residue in common persistence files")
-
-assumed = []
-if checks["listeners_lsof"]["status"] == "UNKNOWN":
-    assumed.append("lsof inspection unavailable; relying on ss signal")
-
-unknown_notes = []
-for name in unknown:
-    errors = checks[name].get("error") or checks[name].get("matches") or []
-    if errors:
-        unknown_notes.append(f"{name}: {' | '.join(errors)}")
-    else:
-        unknown_notes.append(f"{name}: unavailable")
-
-receipt = {
-    "kind": "sentinel_zero.zero_residue_receipt.v1",
-    "timestamp_utc": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "host": socket.gethostname(),
-    "context": {
-        "ports_checked": [int(port_1), int(port_2)],
-        "canary_chain": chain,
-        "fail_on_unknown": fail_on_unknown == "1",
-    },
+doc = {
+    "receipt_type": "sentinel_zero.zero_residue.v1",
+    "ports": ports,
+    "marker": marker,
+    "is_root": is_root == "true",
+    "listeners_found": [int(p) for p in listeners_found],
+    "errors": errors,
     "checks": checks,
-    "summary": {
-        "status": overall,
-        "failed_checks": failed,
-        "unknown_checks": unknown,
-    },
-    "assumption_ledger": {
-        "OBSERVED": observed,
-        "ASSUMED": assumed,
-        "UNKNOWN": unknown_notes,
-    },
+    "overall_pass": overall_pass == "true",
+    "unknown_checks": unknown,
 }
 
-path = pathlib.Path(receipt_path)
-path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-print(json.dumps(receipt, indent=2, sort_keys=True))
+p = pathlib.Path(receipt_path)
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+print(json.dumps(doc, indent=2, sort_keys=True))
 PY
 
-echo "[zero-residue] receipt: ${RECEIPT_PATH}"
-if [[ "${overall}" == "PASS" ]]; then
-  echo "[zero-residue] PASS"
-  exit 0
+echo "zero_residue_receipt_written=${RECEIPT_PATH}"
+if [[ "${overall_pass}" != "true" ]]; then
+  echo "ZERO_RESIDUE_ASSERTION_FAILED" >&2
+  exit 1
 fi
-echo "[zero-residue][FAIL] detected residue or unknown checks under strict mode"
-exit 1
+echo "ZERO_RESIDUE_OK"

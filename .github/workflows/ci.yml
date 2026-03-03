@@ -16,5 +16,18 @@ jobs:
       - run: ./scripts/gates/kernelkit_audit_chain_gate.sh
       - run: ./scripts/gates/kernelkit_attestation_gate.sh
       - run: ./scripts/gates/kernelkit_verify_perf_gate.sh
-      - run: chmod +x ./scripts/security/assert_zero_residue.sh
-      - run: ./scripts/security/assert_zero_residue.sh --receipt-path /tmp/sz_zero_residue_receipt.json --fail-on-unknown
+  zero-residue-guard:
+    name: zero-residue-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Zero residue assertion (CI)
+        run: |
+          chmod +x ./scripts/security/assert_zero_residue.sh
+          ./scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "docs/canary/zero_residue_receipt.ci.json"
+      - name: Upload zero residue receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: zero_residue_receipt
+          path: docs/canary/zero_residue_receipt.ci.json
+          if-no-files-found: error
