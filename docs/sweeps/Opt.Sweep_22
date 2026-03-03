@@ -2,7 +2,7 @@ Sweep #: 22
 Changes shipped: Verification-only sweep; no additional code edits in this iteration.
 Bugs fixed: None in this iteration.
 Vulns (severity) + fix: No known vulnerabilities reported by cargo-audit gate
-Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2654 (delta_vs_prev=-9ms)
+Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2634 (delta_vs_prev=+36ms)
 WOW upgrade (shipped/spec): Shipped - one-command continuous enterprise sweep runner with strict per-sweep logs.
 Tests added + results: sandbox suite PASS (tests/clippy/gates)
 Remaining risks/TODO: No new runtime regressions observed in this sweep
@@ -16,7 +16,7 @@ Pinned System Contract:
     - reproducible build/test commands: cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh && scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "/tmp/sz_zero_residue_receipt.sweep.json"
 Findings log:
     - F1: sweep_status=PASS; deterministic gate bundle executed
-    - F2: perf_total_ms=2654; perf_delta_vs_prev=-9ms
+    - F2: perf_total_ms=2634; perf_delta_vs_prev=+36ms
     - F3: drift(lock/api/schema)=(NONE)|(NONE)|(NONE)
 Risk register (severity|likelihood|status):
     - R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior
@@ -34,8 +34,8 @@ Top 3 next-sweep priorities:
 Assumption Ledger:
     OBSERVED:
       - sweep_status=PASS
-      - started_utc=2026-03-03T10:07:09Z
-      - ended_utc=2026-03-03T10:07:17Z
+      - started_utc=2026-03-03T10:17:46Z
+      - ended_utc=2026-03-03T10:17:54Z
       - success_count=22
       - current_100_streak=22
       - best_100_streak=22
@@ -60,7 +60,7 @@ Command summary:
 [gate] cargo audit gate start
 [gate] cargo audit PASS (no known vulnerabilities)
 [gate] kernelkit receipt gate start
-[gate] apply dir: /tmp/tmp.1McvmDtJ6C/20260303-100711
+[gate] apply dir: /tmp/tmp.RAyEigGz0r/20260303-101749
 [gate] verify fail-closed without signed receipt: OK
 [gate] kernelkit receipt gate PASS
 [gate] kernelkit audit chain gate start
@@ -68,7 +68,7 @@ Command summary:
 [gate] kernelkit attestation gate start
 [gate] kernelkit attestation signature/scope checks PASS
 [gate] kernelkit verify perf gate start (iters=20, max_total_ms=10000)
-[gate] kernelkit verify perf PASS total_ms=2654
+[gate] kernelkit verify perf PASS total_ms=2634
 [gate] zero residue guard start
 [gate] ZERO_RESIDUE_OK receipt=/tmp/sz_zero_residue_receipt.sweep_22.json
 [gate] zero residue guard PASS
