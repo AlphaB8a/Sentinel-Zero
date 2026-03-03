@@ -10,9 +10,13 @@ A canary/exposure run is "zero residue" when, after shutdown/rollback:
 
 1. No process is listening on declared canary ports (default: `17777`/`17778`).
 2. No persistence markers exist in readable firewall persistence config:
-   - `/etc/nftables.conf` contains neither:
-     - the marker string (`SZ_CANARY`), nor
-     - the canary ports as tokens.
+   - `/etc/iptables/rules.v4`
+   - `/etc/iptables/rules.v6`
+   - `/etc/sysconfig/iptables`
+   - `/etc/nftables.conf`
+   Each file, if present, must contain neither:
+   - the marker string (`SZ_CANARY`), nor
+   - the canary ports as tokens.
 3. Repo hygiene:
    - evidence reports and harness tools are tracked
    - raw runtime logs and volatile phase outputs are not tracked
@@ -47,4 +51,4 @@ Root (preferred for full closure):
 - `sudo ./scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "docs/canary/zero_residue_receipt.root.json"`
 
 ## CI Requirement
-CI must run the zero-residue assertion and publish the receipt artifact.
+CI must run the zero-residue assertion in strict mode and publish the receipt artifact.

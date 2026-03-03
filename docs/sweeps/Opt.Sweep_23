@@ -2,7 +2,7 @@ Sweep #: 23
 Changes shipped: Verification-only sweep; no additional code edits in this iteration.
 Bugs fixed: None in this iteration.
 Vulns (severity) + fix: No known vulnerabilities reported by cargo-audit gate
-Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2677 (delta_vs_prev=-4ms)
+Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2677 (delta_vs_prev=+11ms)
 WOW upgrade (shipped/spec): Shipped - one-command continuous enterprise sweep runner with strict per-sweep logs.
 Tests added + results: sandbox suite PASS (tests/clippy/gates)
 Remaining risks/TODO: No new runtime regressions observed in this sweep
@@ -16,7 +16,7 @@ Pinned System Contract:
     - reproducible build/test commands: cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh && scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "/tmp/sz_zero_residue_receipt.sweep.json"
 Findings log:
     - F1: sweep_status=PASS; deterministic gate bundle executed
-    - F2: perf_total_ms=2677; perf_delta_vs_prev=-4ms
+    - F2: perf_total_ms=2677; perf_delta_vs_prev=+11ms
     - F3: drift(lock/api/schema)=(NONE)|(NONE)|(NONE)
 Risk register (severity|likelihood|status):
     - R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior
@@ -34,8 +34,8 @@ Top 3 next-sweep priorities:
 Assumption Ledger:
     OBSERVED:
       - sweep_status=PASS
-      - started_utc=2026-03-03T03:03:13Z
-      - ended_utc=2026-03-03T03:03:20Z
+      - started_utc=2026-03-03T03:19:33Z
+      - ended_utc=2026-03-03T03:19:40Z
       - success_count=23
       - current_100_streak=23
       - best_100_streak=23
@@ -56,7 +56,7 @@ Command summary:
 [gate] cargo audit gate start
 [gate] cargo audit PASS (no known vulnerabilities)
 [gate] kernelkit receipt gate start
-[gate] apply dir: /tmp/tmp.wn11V3vwF1/20260303-030315
+[gate] apply dir: /tmp/tmp.ftJzj7t3DF/20260303-031935
 [gate] verify fail-closed without signed receipt: OK
 [gate] kernelkit receipt gate PASS
 [gate] kernelkit audit chain gate start

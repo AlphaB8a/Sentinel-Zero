@@ -24,9 +24,12 @@ const DEFAULT_IPC_MAX_MESSAGES_PER_CONN: u64 = 10_000;
 const MAX_IPC_MAX_MESSAGES_PER_CONN: u64 = 1_000_000;
 const DEFAULT_IPC_MAX_CONNECTIONS: usize = 256;
 const MAX_IPC_MAX_CONNECTIONS: usize = 100_000;
+const DEFAULT_IPC_TLS_HANDSHAKE_TIMEOUT_MS: u64 = 3_000;
+const MAX_IPC_TLS_HANDSHAKE_TIMEOUT_MS: u64 = 60_000;
 const SENTINEL_ALLOW_NON_LOOPBACK_BIND: &str = "SENTINEL_ALLOW_NON_LOOPBACK_BIND";
 const SENTINEL_IPC_ALLOW_INSECURE_DIR_PERMS: &str = "SENTINEL_IPC_ALLOW_INSECURE_DIR_PERMS";
 const SENTINEL_IPC_MAX_CONNECTIONS: &str = "SENTINEL_IPC_MAX_CONNECTIONS";
+const SENTINEL_IPC_TLS_HANDSHAKE_TIMEOUT_MS: &str = "SENTINEL_IPC_TLS_HANDSHAKE_TIMEOUT_MS";
 
 /// Minimal NDJSON plugin host. Production hardening will:
 /// - bind under /run/user/$UID with 0700 dir, 0600 socket
@@ -38,6 +41,7 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
     let read_timeout = ipc_read_timeout()?;
     let max_messages_per_conn = ipc_max_messages_per_conn()?;
     let max_connections = ipc_max_connections()?;
+    let tls_handshake_timeout = ipc_tls_handshake_timeout()?;
     let connection_limiter = Arc::new(Semaphore::new(max_connections));
 
     match listen {
@@ -111,8 +115,8 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
                 };
                 tokio::spawn(async move {
                     let _permit = permit;
-                    match acceptor.accept(stream).await {
-                        Ok(tls_stream) => {
+                    match timeout(tls_handshake_timeout, acceptor.accept(stream)).await {
+                        Ok(Ok(tls_stream)) => {
                             handle_stream(
                                 tls_stream,
                                 tx,
@@ -122,11 +126,19 @@ pub async fn run_ipc(listen_spec: &str, tx: mpsc::Sender<EngineEvent>) -> anyhow
                             )
                             .await;
                         }
-                        Err(err) => {
+                        Ok(Err(err)) => {
                             let _ = tx
                                 .send(EngineEvent::PluginLog(format!(
                                     "TLS handshake rejected: {}",
                                     err
+                                )))
+                                .await;
+                        }
+                        Err(_) => {
+                            let _ = tx
+                                .send(EngineEvent::PluginLog(format!(
+                                    "TLS handshake timeout after {}ms; disconnecting",
+                                    tls_handshake_timeout.as_millis()
                                 )))
                                 .await;
                         }
@@ -586,6 +598,13 @@ fn ipc_max_connections() -> anyhow::Result<usize> {
     }
 }
 
+fn ipc_tls_handshake_timeout() -> anyhow::Result<Duration> {
+    match std::env::var(SENTINEL_IPC_TLS_HANDSHAKE_TIMEOUT_MS) {
+        Ok(raw) => parse_ipc_tls_handshake_timeout_ms(&raw).map(Duration::from_millis),
+        Err(_) => Ok(Duration::from_millis(DEFAULT_IPC_TLS_HANDSHAKE_TIMEOUT_MS)),
+    }
+}
+
 fn parse_ipc_max_line_bytes(raw: &str) -> anyhow::Result<usize> {
     let parsed = raw
         .parse::<usize>()
@@ -638,6 +657,19 @@ fn parse_ipc_max_connections(raw: &str) -> anyhow::Result<usize> {
     Ok(parsed)
 }
 
+fn parse_ipc_tls_handshake_timeout_ms(raw: &str) -> anyhow::Result<u64> {
+    let parsed = raw
+        .parse::<u64>()
+        .with_context(|| "SENTINEL_IPC_TLS_HANDSHAKE_TIMEOUT_MS must be an integer")?;
+    if !(100..=MAX_IPC_TLS_HANDSHAKE_TIMEOUT_MS).contains(&parsed) {
+        anyhow::bail!(
+            "SENTINEL_IPC_TLS_HANDSHAKE_TIMEOUT_MS must be in [100, {}]",
+            MAX_IPC_TLS_HANDSHAKE_TIMEOUT_MS
+        );
+    }
+    Ok(parsed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -677,6 +709,16 @@ mod tests {
         assert_eq!(parse_ipc_max_connections("1").expect("lower bound"), 1);
         assert!(parse_ipc_max_connections("0").is_err());
         assert!(parse_ipc_max_connections("x").is_err());
+    }
+
+    #[test]
+    fn parse_ipc_tls_handshake_timeout_bounds() {
+        assert_eq!(
+            parse_ipc_tls_handshake_timeout_ms("100").expect("lower bound"),
+            100
+        );
+        assert!(parse_ipc_tls_handshake_timeout_ms("99").is_err());
+        assert!(parse_ipc_tls_handshake_timeout_ms("x").is_err());
     }
 
     #[test]

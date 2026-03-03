@@ -9,6 +9,13 @@ MARKER="${MARKER:-SZ_CANARY}"
 FAIL_ON_UNKNOWN="${FAIL_ON_UNKNOWN:-0}"
 RECEIPT_PATH="${RECEIPT_PATH:-${ROOT}/docs/canary/zero_residue_receipt.json}"
 
+PERSISTENCE_FILES=(
+  "/etc/iptables/rules.v4"
+  "/etc/iptables/rules.v6"
+  "/etc/sysconfig/iptables"
+  "/etc/nftables.conf"
+)
+
 usage() {
   cat <<'EOF'
 Usage: scripts/security/assert_zero_residue.sh [options]
@@ -23,8 +30,8 @@ Options:
 EOF
 }
 
-# Positional form support:
-#   ./scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "docs/canary/zero_residue_receipt.json"
+# Positional form:
+# ./scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "docs/canary/zero_residue_receipt.json"
 if (($# > 0)) && [[ "$1" != -* ]]; then
   PORTS_CSV="$1"
   shift
@@ -89,17 +96,23 @@ trap cleanup EXIT
 CHECKS_FILE="${TMP_DIR}/checks.ndjson"
 touch "${CHECKS_FILE}"
 
+USE_RG=0
+if command -v rg >/dev/null 2>&1; then
+  USE_RG=1
+fi
+
 IFS=',' read -r -a PORTS <<< "${PORTS_CSV}"
 if [[ "${#PORTS[@]}" -eq 0 ]]; then
   echo "[zero-residue][FAIL] no ports provided"
   exit 2
 fi
-for p in "${PORTS[@]}"; do
-  p="${p// /}"
+for i in "${!PORTS[@]}"; do
+  p="${PORTS[$i]// /}"
   if ! [[ "${p}" =~ ^[0-9]+$ ]]; then
     echo "[zero-residue][FAIL] invalid port: ${p}"
     exit 2
   fi
+  PORTS[$i]="${p}"
 done
 
 listeners_found=()
@@ -109,6 +122,20 @@ is_root="false"
 if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
   is_root="true"
 fi
+
+append_check() {
+  printf '%s\n' "$1" >>"${CHECKS_FILE}"
+}
+
+add_unknown() {
+  local item="$1"
+  for cur in "${unknown_checks[@]}"; do
+    if [[ "${cur}" == "${item}" ]]; then
+      return
+    fi
+  done
+  unknown_checks+=("${item}")
+}
 
 run_cmd_capture() {
   local name="$1"
@@ -122,32 +149,68 @@ run_cmd_capture() {
   echo "${rc}"
 }
 
-append_check() {
-  printf '%s\n' "$1" >>"${CHECKS_FILE}"
+run_probe_capture() {
+  local name="$1"
+  shift
+  local mode="$1"
+  shift
+  local out="${TMP_DIR}/${name}.out"
+  local err="${TMP_DIR}/${name}.err"
+  set +e
+  if [[ "${mode}" == "root" || "${mode}" == "sudo" ]]; then
+    sudo "$@" >"${out}" 2>"${err}"
+  else
+    "$@" >"${out}" 2>"${err}"
+  fi
+  local rc=$?
+  set -e
+  echo "${rc}"
+}
+
+match_fixed() {
+  local pattern="$1"
+  local file="$2"
+  if ((USE_RG)); then
+    rg -q --fixed-strings -- "${pattern}" "${file}"
+  else
+    grep -Fq -- "${pattern}" "${file}"
+  fi
+}
+
+match_regex() {
+  local pattern="$1"
+  local file="$2"
+  if ((USE_RG)); then
+    rg -q -- "${pattern}" "${file}"
+  else
+    grep -Eq -- "${pattern}" "${file}"
+  fi
 }
 
 for p in "${PORTS[@]}"; do
-  p="${p// /}"
   ss_rc="$(run_cmd_capture "ss_${p}" ss -lntp)"
   ss_hit="false"
-  if [[ "${ss_rc}" -eq 0 ]] && rg -q ":${p}\\b" "${TMP_DIR}/ss_${p}.out"; then
+  if [[ "${ss_rc}" -eq 0 ]] && match_regex ":${p}([^0-9]|$)" "${TMP_DIR}/ss_${p}.out"; then
     ss_hit="true"
   fi
+
   lsof_ran="false"
   lsof_rc=127
   lsof_hit="false"
   if command -v lsof >/dev/null 2>&1; then
     lsof_ran="true"
     lsof_rc="$(run_cmd_capture "lsof_${p}" lsof -iTCP -sTCP:LISTEN -P -n)"
-    if [[ "${lsof_rc}" -eq 0 ]] && rg -q "\\b${p}\\b" "${TMP_DIR}/lsof_${p}.out"; then
+    if [[ "${lsof_rc}" -eq 0 ]] && match_regex "(^|[^0-9])${p}([^0-9]|$)" "${TMP_DIR}/lsof_${p}.out"; then
       lsof_hit="true"
     fi
   else
-    unknown_checks+=("lsof_unavailable")
+    add_unknown "lsof_unavailable"
   fi
+
   if [[ "${ss_hit}" == "true" || "${lsof_hit}" == "true" ]]; then
     listeners_found+=("${p}")
   fi
+
   check_json="$(python3 - <<'PY' "${p}" "${ss_rc}" "${ss_hit}" "${lsof_ran}" "${lsof_rc}" "${lsof_hit}"
 import json
 import sys
@@ -167,122 +230,132 @@ if [[ "${#listeners_found[@]}" -gt 0 ]]; then
   errors+=("listeners_present")
 fi
 
-# Fail-closed for persistence markers in /etc/nftables.conf when present.
-nft_conf_present="false"
-nft_conf_marker_hit="false"
-nft_conf_ports_hit="false"
-if [[ -f "/etc/nftables.conf" ]]; then
-  nft_conf_present="true"
-  if rg -q --fixed-strings "${MARKER}" /etc/nftables.conf; then
-    nft_conf_marker_hit="true"
-  fi
-  for p in "${PORTS[@]}"; do
-    p="${p// /}"
-    if rg -q "\\b${p}\\b" /etc/nftables.conf; then
-      nft_conf_ports_hit="true"
-      break
+persistence_hits=()
+files_checked=()
+for path in "${PERSISTENCE_FILES[@]}"; do
+  if [[ -f "${path}" ]]; then
+    files_checked+=("${path}")
+    if match_fixed "${MARKER}" "${path}"; then
+      persistence_hits+=("${path}:marker")
     fi
-  done
-fi
-check_json="$(python3 - <<'PY' "${nft_conf_present}" "${MARKER}" "${nft_conf_marker_hit}" "${nft_conf_ports_hit}"
+    for p in "${PORTS[@]}"; do
+      if match_regex "(^|[^0-9])${p}([^0-9]|$)" "${path}"; then
+        persistence_hits+=("${path}:port:${p}")
+        break
+      fi
+    done
+  fi
+done
+
+printf '%s\n' "${files_checked[@]}" >"${TMP_DIR}/files_checked.txt"
+printf '%s\n' "${persistence_hits[@]}" >"${TMP_DIR}/persistence_hits.txt"
+check_json="$(python3 - <<'PY' "${MARKER}" "${TMP_DIR}/files_checked.txt" "${TMP_DIR}/persistence_hits.txt"
 import json
+import pathlib
 import sys
-present, marker, marker_hit, ports_hit = sys.argv[1:]
+marker, files_path, hits_path = sys.argv[1:]
+
+def lines(path):
+    p = pathlib.Path(path)
+    if not p.exists():
+        return []
+    return [line.strip() for line in p.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+
 print(json.dumps({
-    "name": "nftables_conf_persistence_check",
-    "path": "/etc/nftables.conf",
-    "present": present == "true",
-    "marker": {"value": marker, "hit": marker_hit == "true"},
-    "ports_hit": ports_hit == "true",
+    "name": "persistence_config_check",
+    "marker": marker,
+    "files_checked": lines(files_path),
+    "hits": lines(hits_path),
 }))
 PY
 )"
 append_check "${check_json}"
-if [[ "${nft_conf_present}" == "true" ]] && \
-   [[ "${nft_conf_marker_hit}" == "true" || "${nft_conf_ports_hit}" == "true" ]]; then
-  errors+=("nftables_conf_persistence_detected")
+
+if [[ "${#persistence_hits[@]}" -gt 0 ]]; then
+  errors+=("persistence_residue_detected")
 fi
 
-# Root-only live ruleset checks.
+probe_mode="non_root_unknown"
 if [[ "${is_root}" == "true" ]]; then
-  live_hit="false"
-  iptables_state="OK"
-  nft_state="OK"
+  probe_mode="root"
+elif sudo -n true >/dev/null 2>&1; then
+  probe_mode="sudo"
+fi
 
+live_hit="false"
+iptables_state="UNKNOWN"
+nft_state="UNKNOWN"
+if [[ "${probe_mode}" == "root" || "${probe_mode}" == "sudo" ]]; then
   if command -v iptables >/dev/null 2>&1; then
-    ipt_rc="$(run_cmd_capture "iptables_input" iptables -S INPUT)"
-    if [[ "${ipt_rc}" -ne 0 ]]; then
-      iptables_state="ERROR_RC_${ipt_rc}"
-      unknown_checks+=("iptables_input_unavailable")
-    else
-      if rg -q --fixed-strings "${MARKER}" "${TMP_DIR}/iptables_input.out"; then
+    ipt_rc="$(run_probe_capture "iptables_input" "${probe_mode}" iptables -S INPUT)"
+    if [[ "${ipt_rc}" -eq 0 ]]; then
+      iptables_state="OK"
+      if match_fixed "${MARKER}" "${TMP_DIR}/iptables_input.out"; then
         live_hit="true"
       fi
       for p in "${PORTS[@]}"; do
-        p="${p// /}"
-        if rg -q "\\b${p}\\b" "${TMP_DIR}/iptables_input.out"; then
+        if match_regex "(^|[^0-9])${p}([^0-9]|$)" "${TMP_DIR}/iptables_input.out"; then
           live_hit="true"
         fi
       done
+    else
+      iptables_state="ERROR_RC_${ipt_rc}"
+      add_unknown "iptables_input_unavailable"
     fi
   else
     iptables_state="UNAVAILABLE"
-    unknown_checks+=("iptables_binary_unavailable")
+    add_unknown "iptables_binary_unavailable"
   fi
 
   if command -v nft >/dev/null 2>&1; then
-    nft_rc="$(run_cmd_capture "nft_ruleset" nft list ruleset)"
-    if [[ "${nft_rc}" -ne 0 ]]; then
-      nft_state="ERROR_RC_${nft_rc}"
-      unknown_checks+=("nft_ruleset_unavailable")
-    else
-      if rg -q --fixed-strings "${MARKER}" "${TMP_DIR}/nft_ruleset.out"; then
+    nft_rc="$(run_probe_capture "nft_ruleset" "${probe_mode}" nft list ruleset)"
+    if [[ "${nft_rc}" -eq 0 ]]; then
+      nft_state="OK"
+      if match_fixed "${MARKER}" "${TMP_DIR}/nft_ruleset.out"; then
         live_hit="true"
       fi
       for p in "${PORTS[@]}"; do
-        p="${p// /}"
-        if rg -q "\\b${p}\\b" "${TMP_DIR}/nft_ruleset.out"; then
+        if match_regex "(^|[^0-9])${p}([^0-9]|$)" "${TMP_DIR}/nft_ruleset.out"; then
           live_hit="true"
         fi
       done
+    else
+      nft_state="ERROR_RC_${nft_rc}"
+      add_unknown "nft_ruleset_unavailable"
     fi
   else
     nft_state="UNAVAILABLE"
-    unknown_checks+=("nft_binary_unavailable")
+    add_unknown "nft_binary_unavailable"
   fi
+else
+  add_unknown "live_firewall_non_root"
+fi
 
-  check_json="$(python3 - <<'PY' "${iptables_state}" "${nft_state}" "${live_hit}"
+check_json="$(python3 - <<'PY' "${probe_mode}" "${iptables_state}" "${nft_state}" "${live_hit}"
 import json
 import sys
-iptables_state, nft_state, live_hit = sys.argv[1:]
+probe_mode, iptables_state, nft_state, live_hit = sys.argv[1:]
+is_root = probe_mode == "root"
+note = ""
+if probe_mode == "sudo":
+    note = "non-root run using sudo -n for read-only firewall inspection"
+elif probe_mode == "non_root_unknown":
+    note = "non-root run without sudo -n; live firewall state intentionally UNKNOWN"
 print(json.dumps({
     "name": "live_firewall_check",
-    "is_root": True,
+    "probe_mode": probe_mode,
+    "is_root": is_root,
     "iptables": {"state": iptables_state},
     "nft": {"state": nft_state},
     "hit": live_hit == "true",
+    "note": note,
 }))
 PY
 )"
-  append_check "${check_json}"
-  if [[ "${live_hit}" == "true" ]]; then
-    errors+=("live_firewall_residue_detected")
-  fi
-else
-  check_json="$(python3 - <<'PY'
-import json
-print(json.dumps({
-    "name": "live_firewall_check",
-    "is_root": False,
-    "iptables": {"state": "UNKNOWN"},
-    "nft": {"state": "UNKNOWN"},
-    "hit": False,
-    "note": "non-root run: live firewall state intentionally not asserted",
-}))
-PY
-)"
-  append_check "${check_json}"
-  unknown_checks+=("live_firewall_non_root")
+append_check "${check_json}"
+
+if [[ "${live_hit}" == "true" ]]; then
+  errors+=("live_firewall_residue_detected")
 fi
 
 if [[ "${FAIL_ON_UNKNOWN}" -eq 1 && "${#unknown_checks[@]}" -gt 0 ]]; then
