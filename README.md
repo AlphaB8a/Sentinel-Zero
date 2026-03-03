@@ -62,6 +62,18 @@ One command runs repeated deterministic sweeps and writes strict logs:
 
 Per-sweep logs are emitted to `docs/sweeps/Opt.Sweep_XX`.
 
+## KF Attachment (Standalone Mirror Mode)
+Sentinel remains standalone by exporting verification artifacts as a one-way mirror bundle.
+
+```bash
+./scripts/integration/kf_mirror_export.sh \
+  --apply-dir /path/to/kernelkit/apply_dir \
+  --out-dir docs/integrations/kf_mirror_exports
+```
+
+The bundle includes signed receipt, trust root, verify report, audit chain, and integrity manifest.
+See `docs/integrations/KF_ATTACHMENT_STANDALONE_MIRROR.md`.
+
 ## IPC
 Plugins connect via newline-delimited JSON (NDJSON) over a Unix socket.
 See `docs/protocol/IPC_NDJSON_V1.md`.
