@@ -32,6 +32,9 @@ run_cached_sweep() {
   ./scripts/gates/kernelkit_audit_chain_gate.sh
   ./scripts/gates/kernelkit_attestation_gate.sh
   ./scripts/gates/kernelkit_verify_perf_gate.sh
+  echo "[gate] zero residue guard start"
+  ./scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "/tmp/sz_zero_residue_receipt.sweep.json" >/dev/null
+  echo "[gate] zero residue guard PASS"
 }
 
 echo "[enterprise-sweep] prefetching locked dependencies"
@@ -96,7 +99,7 @@ for i in $(seq 1 "${N}"); do
   contract_interfaces="IPC NDJSON v1 + sentinel_protocol::IpcMessage/Ack; kernelkit profile apply/verify/sign-receipt/attest/verify-attestation"
   contract_invariants="fail-closed receipt verify; signed trust-root scope=sentinel-only-promotion; bounded IPC lines/timeouts/message caps/connections"
   contract_versions="docs/protocol/IPC_NDJSON_V1.md; tools/kernelkit plan schema kernelkit.alpha.v0.1; docs/canary/ZERO_RESIDUE_POLICY_CONTRACT_v1.md; Cargo.lock pinned"
-  contract_repro="cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh"
+  contract_repro="cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh && scripts/security/assert_zero_residue.sh \"17777,17778\" \"SZ_CANARY\" \"/tmp/sz_zero_residue_receipt.sweep.json\""
 
   risk_item_1="R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior"
   risk_item_2="R2|Low|Low|Open|Perf gate is single-host synthetic and may not map to all hardware"

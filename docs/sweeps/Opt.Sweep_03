@@ -2,7 +2,7 @@ Sweep #: 3
 Changes shipped: Verification-only sweep; no additional code edits in this iteration.
 Bugs fixed: None in this iteration.
 Vulns (severity) + fix: No known vulnerabilities reported by cargo-audit gate
-Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2591 (delta_vs_prev=-4ms)
+Perf/latency work + measured delta: KernelKit verify perf gate total_ms=2641 (delta_vs_prev=+50ms)
 WOW upgrade (shipped/spec): Shipped - one-command continuous enterprise sweep runner with strict per-sweep logs.
 Tests added + results: sandbox suite PASS (tests/clippy/gates)
 Remaining risks/TODO: No new runtime regressions observed in this sweep
@@ -12,11 +12,11 @@ Major-change confidence:
     • If deferred: no major-change scope in this iteration
 Pinned System Contract:
     - supported interfaces + behavior invariants: IPC NDJSON v1 + sentinel_protocol::IpcMessage/Ack; kernelkit profile apply/verify/sign-receipt/attest/verify-attestation; fail-closed receipt verify; signed trust-root scope=sentinel-only-promotion; bounded IPC lines/timeouts/message caps/connections
-    - versioned configs/schemas: docs/protocol/IPC_NDJSON_V1.md; tools/kernelkit plan schema kernelkit.alpha.v0.1; Cargo.lock pinned
-    - reproducible build/test commands: cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh
+    - versioned configs/schemas: docs/protocol/IPC_NDJSON_V1.md; tools/kernelkit plan schema kernelkit.alpha.v0.1; docs/canary/ZERO_RESIDUE_POLICY_CONTRACT_v1.md; Cargo.lock pinned
+    - reproducible build/test commands: cargo test --workspace --locked && cargo clippy --workspace -- -D warnings && scripts/gates/*.sh && scripts/security/assert_zero_residue.sh "17777,17778" "SZ_CANARY" "/tmp/sz_zero_residue_receipt.sweep.json"
 Findings log:
     - F1: sweep_status=PASS; deterministic gate bundle executed
-    - F2: perf_total_ms=2591; perf_delta_vs_prev=-4ms
+    - F2: perf_total_ms=2641; perf_delta_vs_prev=+50ms
     - F3: drift(lock/api/schema)=(NONE)|(NONE)|(NONE)
 Risk register (severity|likelihood|status):
     - R1|Medium|Medium|Open|Local-only validation cannot prove internet-scale behavior
@@ -34,8 +34,8 @@ Top 3 next-sweep priorities:
 Assumption Ledger:
     OBSERVED:
       - sweep_status=PASS
-      - started_utc=2026-03-02T23:06:47Z
-      - ended_utc=2026-03-02T23:06:53Z
+      - started_utc=2026-03-03T03:00:50Z
+      - ended_utc=2026-03-03T03:00:57Z
       - success_count=3
       - current_100_streak=3
       - best_100_streak=3
@@ -56,7 +56,7 @@ Command summary:
 [gate] cargo audit gate start
 [gate] cargo audit PASS (no known vulnerabilities)
 [gate] kernelkit receipt gate start
-[gate] apply dir: /tmp/tmp.XpkJiNo1fL/20260302-230648
+[gate] apply dir: /tmp/tmp.3h3J0FgHvs/20260303-030052
 [gate] verify fail-closed without signed receipt: OK
 [gate] kernelkit receipt gate PASS
 [gate] kernelkit audit chain gate start
@@ -64,5 +64,7 @@ Command summary:
 [gate] kernelkit attestation gate start
 [gate] kernelkit attestation signature/scope checks PASS
 [gate] kernelkit verify perf gate start (iters=20, max_total_ms=10000)
-[gate] kernelkit verify perf PASS total_ms=2591
+[gate] kernelkit verify perf PASS total_ms=2641
+[gate] zero residue guard start
+[gate] zero residue guard PASS
 Log file: Opt.Sweep_03
